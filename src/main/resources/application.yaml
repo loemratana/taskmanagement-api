@@ -1,0 +1,99 @@
+
+spring:
+  application:
+    name: task-management-api
+  profiles:
+    default: dev
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${POSTGRES_DB:tms}
+    username: ${POSTGRES_USER}
+    password: ${POSTGRES_PASSWORD}
+
+  jpa:
+    open-in-view: false
+
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+
+  mail:
+    host: ${SMTP_HOST:localhost}
+    port: ${SMTP_PORT:1025}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:false}
+          starttls:
+            enable: ${SMTP_STARTTLS:false}
+app:
+  client-base-url: ${CLIENT_BASE_URL:http://localhost:5173}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
+  jwt:
+    # Required — generate per environment, e.g.: openssl rand -base64 48
+    secret: ${JWT_SECRET}
+    # Token expires after 24 hours
+    refresh-token-expiration-ms: ${JWT_EXPIRE:28800000}
+    access-token-expiration-ms: ${JWT_ACCESS_TOKEN_EXPIRATION:604800000}
+  notification:
+    websocket:
+      user-destination-prefix: /user
+      broker-relay: false   # set true if using external broker (RabbitMQ/Redis)
+    email:
+      enabled: ${NOTIFICATION_EMAIL_ENABLED:false}
+    retry:
+      max-attempts: ${NOTIFICATION_RETRY_MAX_ATTEMPTS:5}
+      interval-ms: ${NOTIFICATION_RETRY_INTERVAL_MS:60000}
+  reminder:
+    check-interval-ms: ${TASK_REMINDER_CHECK_INTERVAL_MS:60000}
+    window-minutes: ${TASK_REMINDER_WINDOW_MINUTES:5}
+    default-timezone: ${TASK_REMINDER_DEFAULT_TIMEZONE:Asia/Phnom_Penh}
+    default-times: "${TASK_REMINDER_DEFAULT_TIMES:09:00,13:00,17:00}"
+firebase:
+  credentials: ${FIREBASE_CREDENTIALS}
+info:
+  app:
+    name: "@project.name@"
+    version: "@project.version@"
+    description: "@project.description@"
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+management:
+  endpoints:
+    web:
+      base-path: /management
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  info:
+    env:
+      enabled: true
+
+notification:
+  telegram:
+    bot-token: ${TELEGRAM_BOT_TOKEN}
+    api-base-url: ${TELEGRAM_API_BASE_URL:https://api.telegram.org}
+    connect-timeout-ms: ${TELEGRAM_CONNECT_TIMEOUT_MS:3000}
+    read-timeout-ms: ${TELEGRAM_READ_TIMEOUT_MS:5000}
+cloudinary:
+  cloud-name: ${CLOUDINARY_CLOUD_NAME}
+  api-key: ${CLOUDINARY_API_KEY}
+  api-secret: ${CLOUDINARY_API_SECRET}
+
+supabase:
+  url: ${SUPABASE_URL}
+  service-key: ${SUPABASE_SERVICE_KEY}
+  bucket: ${SUPABASE_BUCKET:taskmanagement}
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    shutdown: graceful

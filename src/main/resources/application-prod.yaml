@@ -1,0 +1,29 @@
+# Production overrides.
+# No secret defaults here on purpose — the app must fail fast at startup
+# if a required credential is missing rather than silently using a dev value.
+
+spring:
+  jpa:
+    hibernate:
+      # Schema changes must go through Flyway migrations, never auto-DDL.
+      # If this fails validation on first deploy, add a Flyway migration to
+      # reconcile drift — do not switch this back to "update".
+      ddl-auto: ${JPA_DDL_AUTO:validate}
+    properties:
+      hibernate:
+        format_sql: false
+        show_sql: false
+
+logging:
+  level:
+    root: warn
+    com.ratana.task_management_api: info
+    org.springframework.web: warn
+    org.springframework.security: warn
+
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
+  show-actuator: false
