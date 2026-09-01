@@ -1,5 +1,6 @@
 package com.ratana.task_management_api.controller;
 
+import com.ratana.task_management_api.dto.request.AssignMultipleUsersRequest;
 import com.ratana.task_management_api.dto.request.AssignTaskRequest;
 import com.ratana.task_management_api.dto.request.CreateTaskRequest;
 import com.ratana.task_management_api.dto.request.ReminderSettingsUpdateRequest;
@@ -10,6 +11,7 @@ import com.ratana.task_management_api.dto.response.ApiResponse;
 import com.ratana.task_management_api.dto.response.ErrorResponse;
 import com.ratana.task_management_api.dto.response.PageResponse;
 import com.ratana.task_management_api.dto.response.ReminderSettingsResponse;
+import com.ratana.task_management_api.dto.response.TaskAssignmentResponse;
 import com.ratana.task_management_api.dto.response.TaskCommentResponse;
 import com.ratana.task_management_api.dto.response.TaskResponse;
 import com.ratana.task_management_api.security.UserPrincipal;
@@ -103,6 +105,16 @@ public class TaskController {
             @PathVariable UUID id,
             @Valid @RequestBody AssignTaskRequest request) {
         return ResponseEntity.ok(ApiResponse.success(taskService.assignTask(id, request)));
+    }
+
+    @PostMapping(value = "/{id}/assignees", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Add assignees to a task",
+            description = "Adds one or more additional users to a task's multi-assignee list. Users already assigned are skipped.")
+    @PreAuthorize("hasAnyAuthority('tasks:assign:all','tasks:assign:department')")
+    public ResponseEntity<ApiResponse<List<TaskAssignmentResponse>>> assignUsers(
+            @PathVariable UUID id,
+            @Valid @RequestBody AssignMultipleUsersRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(taskService.assignUsers(id, request)));
     }
 
     @PatchMapping("/{id}/status")

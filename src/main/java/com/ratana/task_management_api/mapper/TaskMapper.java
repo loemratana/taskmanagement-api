@@ -10,6 +10,7 @@ import com.ratana.task_management_api.model.Task;
 import com.ratana.task_management_api.model.User;
 import org.springframework.stereotype.Component;
 
+import java.time.ZoneId;
 import java.util.List;
 
 @Component
@@ -37,6 +38,10 @@ public class TaskMapper {
 
                 .dueDate(createTaskRequest.getDueDate())
 
+                .estimatedHours(createTaskRequest.getEstimatedHours())
+
+                .tags(createTaskRequest.getTags())
+
                 .build();
     }
 
@@ -47,6 +52,7 @@ public class TaskMapper {
         return TaskResponse.builder()
 
                 .id(task.getId())
+                .taskCode(task.getTaskCode())
                 .title(task.getTitle())
                 .description(task.getDescription())
                 .status(task.getStatus())
@@ -67,6 +73,18 @@ public class TaskMapper {
                                 .build()
                 )
                 .dueDate(task.getDueDate())
+                .startDate(
+                        task.getStartDate() != null ? task.getStartDate().atStartOfDay() : null
+                )
+                .parentTaskId(
+                        task.getParentTask() != null ? task.getParentTask().getId() : null
+                )
+                .progress(task.getProgress())
+                .completedAt(
+                        task.getCompletedAt() != null
+                                ? task.getCompletedAt().atZone(ZoneId.systemDefault()).toLocalDate()
+                                : null
+                )
                 .createdAt(task.getCreatedAt())
 
                 .updatedAt(task.getUpdatedAt())

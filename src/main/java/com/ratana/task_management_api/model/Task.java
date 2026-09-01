@@ -33,6 +33,9 @@ public class Task {
     @Builder.Default
     private Long version = 0L;
 
+    @Column(name = "task_code", nullable = false, unique = true, updatable = false, length = 20)
+    private String taskCode;
+
     @Column(columnDefinition = "TEXT", nullable = false)
     private String title;
 
@@ -116,6 +119,9 @@ public class Task {
 
     @UpdateTimestamp
     private Instant updatedAt;
+
+    @Column(name = "completed_at")
+    private Instant completedAt;
 
     @OneToMany(
             mappedBy="task",

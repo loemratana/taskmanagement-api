@@ -1,5 +1,6 @@
 package com.ratana.task_management_api.service.ServiceImpl;
 
+import com.ratana.task_management_api.dto.response.TaskAssignmentResponse;
 import com.ratana.task_management_api.enums.AssignmentStatus;
 import com.ratana.task_management_api.model.Task;
 import com.ratana.task_management_api.model.TaskAssignment;
@@ -12,7 +13,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -50,4 +50,25 @@ public class TaskAssignmentService {
         return newAssignments;
     }
 
+    public TaskAssignmentResponse toResponse(TaskAssignment assignment) {
+        return TaskAssignmentResponse.builder()
+                .id(assignment.getId())
+                .taskId(assignment.getTask().getId())
+                .user(mapUser(assignment.getUser()))
+                .assignedBy(mapUser(assignment.getAssignedBy()))
+                .status(assignment.getStatus())
+                .assignedAt(assignment.getAssignedAt())
+                .build();
+    }
+
+    private TaskAssignmentResponse.UserRef mapUser(User user) {
+        if (user == null) {
+            return null;
+        }
+        return TaskAssignmentResponse.UserRef.builder()
+                .id(user.getId())
+                .name(user.getFullName())
+                .avatarUrl(user.getAvatarUrl())
+                .build();
+    }
 }

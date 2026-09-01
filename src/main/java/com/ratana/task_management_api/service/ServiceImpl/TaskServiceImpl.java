@@ -1,10 +1,12 @@
 package com.ratana.task_management_api.service.ServiceImpl;
 
+import com.ratana.task_management_api.dto.request.AssignMultipleUsersRequest;
 import com.ratana.task_management_api.dto.request.AssignTaskRequest;
 import com.ratana.task_management_api.dto.request.CreateTaskRequest;
 import com.ratana.task_management_api.dto.request.TaskFilterRequest;
 import com.ratana.task_management_api.dto.request.UpdateTaskRequest;
 import com.ratana.task_management_api.dto.response.PageResponse;
+import com.ratana.task_management_api.dto.response.TaskAssignmentResponse;
 import com.ratana.task_management_api.dto.response.TaskResponse;
 import com.ratana.task_management_api.enums.TaskStatus;
 import com.ratana.task_management_api.enums.ViewScope;
@@ -15,6 +17,7 @@ import com.ratana.task_management_api.exception.TaskNotFoundException;
 import com.ratana.task_management_api.mapper.TaskMapper;
 import com.ratana.task_management_api.model.Department;
 import com.ratana.task_management_api.model.Task;
+import com.ratana.task_management_api.model.TaskAssignment;
 import com.ratana.task_management_api.model.User;
 import com.ratana.task_management_api.repository.DepartmentRepository;
 import com.ratana.task_management_api.repository.TaskRepository;
@@ -32,6 +35,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
@@ -49,6 +53,7 @@ public class TaskServiceImpl implements TaskService {
     private final TaskWorkflowService taskWorkflowService;
     private final TaskMapper taskMapper;
     private final TaskAuthorizationService taskAuthorizationService;
+    private final TaskAssignmentService taskAssignmentService;
     private final UserRepository userRepository;
     private final DepartmentRepository departmentRepository;
     private final ApplicationEventPublisher eventPublisher;
@@ -65,7 +70,12 @@ public class TaskServiceImpl implements TaskService {
         Task task = taskMapper.toEntity(createTaskRequest);
         task.setCreator(creator);
         task.setStatus(TaskStatus.TODO);
+        task.setTaskCode(generateTaskCode());
         task.setDepartment(loadDepartment(createTaskRequest.getDepartmentId()));
+
+        if (createTaskRequest.getParentTaskId() != null) {
+            task.setParentTask(loadTask(createTaskRequest.getParentTaskId()));
+        }
 
         if (createTaskRequest.getAssigneeId() != null) {
             User assignee = loadUser(createTaskRequest.getAssigneeId(), "Assignee not found");
@@ -112,6 +122,34 @@ public class TaskServiceImpl implements TaskService {
 
     @Override
     @Transactional
+    public List<TaskAssignmentResponse> assignUsers(UUID taskId, AssignMultipleUsersRequest request) {
+        UserPrincipal actor = SecurityUtils.getCurrentUser();
+        Task task = loadTask(taskId);
+
+        List<User> targets = request.getUserIds().stream()
+                .map(id -> loadUser(id, "Assignee not found: " + id))
+                .toList();
+        targets.forEach(target -> taskAuthorizationService.assertCanAssign(actor, task, target));
+
+        List<TaskAssignment> created = taskAssignmentService.assignUsers(task, request.getUserIds(), actor);
+        Task saved = taskRepository.save(task);
+        log.info("Task {} assigned to {} additional user(s) by {}", taskId, created.size(), actor.getId());
+
+        created.forEach(assignment -> eventPublisher.publishEvent(new TaskAssignedEvent(
+                this,
+                saved.getId(),
+                saved.getTitle(),
+                assignment.getUser().getId(),
+                actor.getId(),
+                actor.getUsername(),
+                saved.getDepartment().getId()
+        )));
+
+        return created.stream().map(taskAssignmentService::toResponse).toList();
+    }
+
+    @Override
+    @Transactional
     public TaskResponse updateOwnTask(UUID taskId, UpdateTaskRequest updateTaskRequest) {
         UserPrincipal actor = SecurityUtils.getCurrentUser();
         Task task = loadTask(taskId);
@@ -135,8 +173,14 @@ public class TaskServiceImpl implements TaskService {
 
         taskWorkflowService.assertCanChangeStatus(task, targetStatus, actor);
 
-        String oldStatus = task.getStatus().name();
+        TaskStatus previousStatus = task.getStatus();
+        String oldStatus = previousStatus.name();
         task.setStatus(targetStatus);
+        if (targetStatus == TaskStatus.DONE) {
+            task.setCompletedAt(Instant.now());
+        } else if (previousStatus == TaskStatus.DONE) {
+            task.setCompletedAt(null);
+        }
         Task saved = taskRepository.save(task);
         log.info("Task {} status changed {} -> {} by {}", id, oldStatus, targetStatus, actor.getId());
 
@@ -218,6 +262,10 @@ public class TaskServiceImpl implements TaskService {
     private Task loadTask(UUID id) {
         return taskRepository.findById(id)
                 .orElseThrow(() -> new TaskNotFoundException("Task not found: " + id));
+    }
+
+    private String generateTaskCode() {
+        return "TASK-%06d".formatted(taskRepository.nextTaskCodeSequence());
     }
 
     private Department loadDepartment(UUID id) {

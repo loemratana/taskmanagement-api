@@ -26,9 +26,11 @@ public class UserDevice {
     private UUID id;
 
     @Column(nullable = false, updatable = false)
+    @Builder.Default
     private Instant createdAt = Instant.now();
 
     @Column(nullable = false)
+    @Builder.Default
     private Instant updatedAt = Instant.now();
 
     @PreUpdate
@@ -49,6 +51,7 @@ public class UserDevice {
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "device_info", columnDefinition = "jsonb")
+    @Builder.Default
     private Map<String, Object> deviceInfo = new HashMap<>();
 
     @Column(nullable = false)

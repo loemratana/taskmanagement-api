@@ -1,6 +1,7 @@
 package com.ratana.task_management_api.service.sender;
 
 import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
 import com.google.firebase.messaging.ApnsConfig;
 import com.google.firebase.messaging.Aps;
 import com.google.firebase.messaging.BatchResponse;
@@ -58,6 +59,9 @@ public class FirebaseNotificationSender implements NotificationSender {
                         notification.getReferenceId() != null ? notification.getReferenceId().toString() : "")
                 .setAndroidConfig(AndroidConfig.builder()
                         .setPriority(AndroidConfig.Priority.HIGH)
+                        .setNotification(AndroidNotification.builder()
+                                .setSound("default")
+                                .build())
                         .build())
                 .setApnsConfig(ApnsConfig.builder()
                         .setAps(Aps.builder().setSound("default").build())

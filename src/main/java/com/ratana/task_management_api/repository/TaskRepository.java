@@ -25,6 +25,9 @@ public interface TaskRepository extends JpaRepository<Task, UUID> , JpaSpecifica
     @EntityGraph(attributePaths = {"department","assignee", "creator", "parentTask"})
   Optional<Task> findById(UUID id);
 
+    @Query(value = "SELECT nextval('task_code_seq')", nativeQuery = true)
+    long nextTaskCodeSequence();
+
     List<Task> findByParentTaskId(UUID parentTaskId);
 
     // Used to check if assignee is in a department (for TASK_ASSIGN_DEPARTMENT)
