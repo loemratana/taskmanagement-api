@@ -2,21 +2,27 @@ package com.ratana.task_management_api.services;
 
 import com.ratana.task_management_api.dto.request.AssignTaskRequest;
 import com.ratana.task_management_api.dto.request.CreateTaskRequest;
+import com.ratana.task_management_api.dto.request.ReviewTaskRequest;
 import com.ratana.task_management_api.dto.request.UpdateTaskRequest;
 import com.ratana.task_management_api.dto.response.TaskResponse;
+import com.ratana.task_management_api.dto.response.TaskReviewResponse;
 import com.ratana.task_management_api.enums.Priority;
 import com.ratana.task_management_api.enums.TaskStatus;
 import com.ratana.task_management_api.event.TaskAssignedEvent;
 import com.ratana.task_management_api.event.TaskStatusChangedEvent;
+import com.ratana.task_management_api.exception.BadRequestException;
 import com.ratana.task_management_api.exception.ResourceNotFoundException;
 import com.ratana.task_management_api.exception.TaskNotFoundException;
 import com.ratana.task_management_api.exception.UnauthorizedTaskAccessException;
 import com.ratana.task_management_api.mapper.TaskMapper;
+import com.ratana.task_management_api.mapper.TaskReviewMapper;
 import com.ratana.task_management_api.model.Department;
 import com.ratana.task_management_api.model.Task;
+import com.ratana.task_management_api.model.TaskReview;
 import com.ratana.task_management_api.model.User;
 import com.ratana.task_management_api.repository.DepartmentRepository;
 import com.ratana.task_management_api.repository.TaskRepository;
+import com.ratana.task_management_api.repository.TaskReviewRepository;
 import com.ratana.task_management_api.repository.UserRepository;
 import com.ratana.task_management_api.security.SecurityUtils;
 import com.ratana.task_management_api.security.UserPrincipal;
@@ -53,6 +59,8 @@ public class TaskServiceImplTest {
     @Mock private DepartmentRepository departmentRepository;
     @Mock private ApplicationEventPublisher eventPublisher;
     @Mock private TaskWorkflowService taskWorkflowService;
+    @Mock private TaskReviewRepository taskReviewRepository;
+    @Mock private TaskReviewMapper taskReviewMapper;
 
     @InjectMocks
     private TaskServiceImpl taskService;
@@ -313,6 +321,146 @@ public class TaskServiceImplTest {
 
         verify(taskWorkflowService).assertCanChangeStatus(task, TaskStatus.IN_PROGRESS, actor);
         verify(eventPublisher).publishEvent(any(TaskStatusChangedEvent.class));
+    }
+
+    @Test
+    @DisplayName("reviewTask – approves with rating, creates a new review row")
+    void reviewTask_success_newReview() {
+        Task task = new Task();
+        task.setId(taskId);
+        task.setTitle("T");
+        task.setStatus(TaskStatus.IN_REVIEW);
+        User assignee = new User();
+        assignee.setId(assigneeId);
+        task.setAssignee(assignee);
+
+        Task saved = new Task();
+        saved.setId(taskId);
+        saved.setTitle("T");
+        saved.setStatus(TaskStatus.APPROVED);
+        saved.setAssignee(assignee);
+
+        User reviewer = new User();
+        reviewer.setId(actorId);
+
+        ReviewTaskRequest request = ReviewTaskRequest.builder()
+                .status(TaskStatus.APPROVED)
+                .rating(5)
+                .comment("Great work")
+                .build();
+
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task));
+        doNothing().when(taskWorkflowService).assertCanChangeStatus(task, TaskStatus.APPROVED, actor);
+        when(taskRepository.save(task)).thenReturn(saved);
+        when(userRepository.findById(actorId)).thenReturn(Optional.of(reviewer));
+        when(taskReviewRepository.findByTaskId(taskId)).thenReturn(Optional.empty());
+
+        ArgumentCaptor<TaskReview> reviewCaptor = ArgumentCaptor.forClass(TaskReview.class);
+        when(taskReviewRepository.save(reviewCaptor.capture())).thenAnswer(inv -> inv.getArgument(0));
+        when(taskReviewMapper.toResponse(any(TaskReview.class))).thenReturn(new TaskReviewResponse());
+
+        taskService.reviewTask(taskId, request);
+
+        verify(taskWorkflowService).assertCanChangeStatus(task, TaskStatus.APPROVED, actor);
+        verify(eventPublisher).publishEvent(any(TaskStatusChangedEvent.class));
+
+        TaskReview persisted = reviewCaptor.getValue();
+        assertThat(persisted.getTask()).isEqualTo(saved);
+        assertThat(persisted.getReviewer()).isEqualTo(reviewer);
+        assertThat(persisted.getRating()).isEqualTo(5);
+        assertThat(persisted.getComment()).isEqualTo("Great work");
+        assertThat(persisted.getDecision()).isEqualTo(TaskStatus.APPROVED);
+    }
+
+    @Test
+    @DisplayName("reviewTask – re-reviewing overwrites the existing row instead of inserting a new one")
+    void reviewTask_success_overwritesExistingReview() {
+        Task task = new Task();
+        task.setId(taskId);
+        task.setStatus(TaskStatus.IN_REVIEW);
+
+        Task saved = new Task();
+        saved.setId(taskId);
+        saved.setStatus(TaskStatus.REJECTED);
+
+        User reviewer = new User();
+        reviewer.setId(actorId);
+
+        TaskReview existing = new TaskReview();
+        existing.setId(UUID.randomUUID());
+        existing.setRating(3);
+        existing.setComment("Needs more work");
+        existing.setDecision(TaskStatus.APPROVED);
+
+        ReviewTaskRequest request = ReviewTaskRequest.builder()
+                .status(TaskStatus.REJECTED)
+                .rating(2)
+                .comment("Still not right")
+                .build();
+
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task));
+        doNothing().when(taskWorkflowService).assertCanChangeStatus(task, TaskStatus.REJECTED, actor);
+        when(taskRepository.save(task)).thenReturn(saved);
+        when(userRepository.findById(actorId)).thenReturn(Optional.of(reviewer));
+        when(taskReviewRepository.findByTaskId(taskId)).thenReturn(Optional.of(existing));
+        when(taskReviewRepository.save(any(TaskReview.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(taskReviewMapper.toResponse(any(TaskReview.class))).thenReturn(new TaskReviewResponse());
+
+        taskService.reviewTask(taskId, request);
+
+        verify(taskReviewRepository, never()).save(argThat(r -> r != existing));
+        assertThat(existing.getRating()).isEqualTo(2);
+        assertThat(existing.getComment()).isEqualTo("Still not right");
+        assertThat(existing.getDecision()).isEqualTo(TaskStatus.REJECTED);
+    }
+
+    @Test
+    @DisplayName("reviewTask – rejects a status that isn't APPROVED/REJECTED")
+    void reviewTask_invalidDecision_throws() {
+        ReviewTaskRequest request = ReviewTaskRequest.builder()
+                .status(TaskStatus.DONE)
+                .rating(4)
+                .comment("N/A")
+                .build();
+
+        assertThatThrownBy(() -> taskService.reviewTask(taskId, request))
+                .isInstanceOf(BadRequestException.class);
+
+        verifyNoInteractions(taskRepository);
+    }
+
+    @Test
+    @DisplayName("getReview – returns the persisted review")
+    void getReview_success() {
+        Task task = new Task();
+        task.setId(taskId);
+
+        TaskReview review = new TaskReview();
+        review.setId(UUID.randomUUID());
+
+        TaskReviewResponse response = new TaskReviewResponse();
+
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task));
+        doNothing().when(taskAuthorizationService).assertCanView(actor, task);
+        when(taskReviewRepository.findByTaskId(taskId)).thenReturn(Optional.of(review));
+        when(taskReviewMapper.toResponse(review)).thenReturn(response);
+
+        TaskReviewResponse result = taskService.getReview(taskId, actor);
+
+        assertThat(result).isSameAs(response);
+    }
+
+    @Test
+    @DisplayName("getReview – returns null when the task hasn't been reviewed yet")
+    void getReview_notYetReviewed_returnsNull() {
+        Task task = new Task();
+        task.setId(taskId);
+
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task));
+        doNothing().when(taskAuthorizationService).assertCanView(actor, task);
+        when(taskReviewRepository.findByTaskId(taskId)).thenReturn(Optional.empty());
+
+        assertThat(taskService.getReview(taskId, actor)).isNull();
     }
 
     @Test

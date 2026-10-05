@@ -22,7 +22,7 @@ public interface TaskRepository extends JpaRepository<Task, UUID> , JpaSpecifica
 
 
 
-    @EntityGraph(attributePaths = {"department","assignee", "creator", "parentTask"})
+    @EntityGraph(attributePaths = {"department","assignee", "creator", "parentTask","comments","attachments"})
   Optional<Task> findById(UUID id);
 
     @Query(value = "SELECT nextval('task_code_seq')", nativeQuery = true)
@@ -48,6 +48,8 @@ public interface TaskRepository extends JpaRepository<Task, UUID> , JpaSpecifica
     // Counts for dashboard
     long countByAssigneeIdAndStatus(UUID assigneeId, TaskStatus status);
 
+    long countByAssigneeIdAndActiveTrue(UUID assigneeId);
+
     long countByStatus(TaskStatus status);
 
     @Query("SELECT t.status, COUNT(t) FROM Task t GROUP BY t.status")
@@ -64,6 +66,18 @@ public interface TaskRepository extends JpaRepository<Task, UUID> , JpaSpecifica
     @Query("SELECT COUNT(t) FROM Task t WHERE t.dueDate < CURRENT_DATE AND t.status NOT IN :finishedStatuses")
     long countOverdue(@Param("finishedStatuses") List<TaskStatus> finishedStatuses);
 
+    @Query("SELECT COUNT(t) FROM Task t WHERE t.assignee.id = :assigneeId AND t.dueDate < CURRENT_DATE AND t.status NOT IN :finishedStatuses")
+    long countOverdueForAssignee(@Param("assigneeId") UUID assigneeId, @Param("finishedStatuses") List<TaskStatus> finishedStatuses);
+
+    /**
+     * Manager KPI dashboard: every active task THIS user assigned (assignedBy), not their
+     * direct-report "team" — managers here don't reliably have manager_id-linked direct
+     * reports. One query, aggregated in Java (status breakdown, overdue, per-assignee
+     * workload, weekly completions), same pattern as findByAssigneeIdInAndActiveTrue below.
+     */
+    @EntityGraph(attributePaths = {"assignee"})
+    List<Task> findByAssignedByIdAndActiveTrue(UUID assignedById);
+
     @EntityGraph(attributePaths = {"department", "assignee", "creator", "assignedBy"})
     List<Task> findTop20ByOrderByCreatedAtDesc();
 
@@ -73,4 +87,12 @@ public interface TaskRepository extends JpaRepository<Task, UUID> , JpaSpecifica
     @EntityGraph(attributePaths = {"assignee", "assignedBy", "creator"})
     @Query("SELECT t FROM Task t WHERE t.active = true AND t.status NOT IN :terminalStatuses AND t.assignee IS NOT NULL")
     List<Task> findActiveNonTerminalWithAssignee(@Param("terminalStatuses") List<TaskStatus> terminalStatuses);
+
+    /**
+     * Every active task belonging to the given assignees — one query, aggregated in
+     * Java (status breakdown, overdue, on-time rate, per-member workload, weekly
+     * completions) since the team a manager can query is bounded (their direct reports).
+     */
+    @EntityGraph(attributePaths = {"assignee"})
+    List<Task> findByAssigneeIdInAndActiveTrue(List<UUID> assigneeIds);
 }

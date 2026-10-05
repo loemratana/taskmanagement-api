@@ -19,6 +19,8 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 
 /**
  * Ticks every minute, finds tasks with a due reminder slot, and hands each one to
@@ -47,10 +49,18 @@ public class TaskReminderScheduler {
             return;
         }
 
+        Map<UUID, TaskReminderSetting> settingsByTaskId = taskReminderService.findSettingsByTaskIds(
+                candidates.stream().map(Task::getId).toList());
+
         int dueCount = 0;
         for (Task task : candidates) {
             try {
-                dueCount += processTask(task);
+                TaskReminderSetting setting = settingsByTaskId.get(task.getId());
+                if (setting == null) {
+                    // First tick for this task — provision defaults (one-time cost per task).
+                    setting = taskReminderService.getOrCreateSettings(task);
+                }
+                dueCount += processTask(task, setting);
             } catch (Exception e) {
                 log.error("Reminder check failed for task {}", task.getId(), e);
             }
@@ -62,8 +72,7 @@ public class TaskReminderScheduler {
         }
     }
 
-    private int processTask(Task task) {
-        TaskReminderSetting setting = taskReminderService.getOrCreateSettings(task);
+    private int processTask(Task task, TaskReminderSetting setting) {
         if (!setting.isEnabled()) {
             return 0;
         }

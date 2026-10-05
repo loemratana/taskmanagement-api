@@ -27,5 +27,6 @@ public class UserUpdateRequest {
     private String avartarUrl;
     private UUID positionId;
     private UUID managerId;
+    private UUID roleId;
 
 }

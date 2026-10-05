@@ -107,6 +107,12 @@ public final class TaskSpecifications {
                 : cb.equal(root.get("creator").get("id"), creatorId);
     }
 
+    public static Specification<Task> withAssignedBy(UUID assignedById) {
+        return (root, query, cb) -> assignedById == null
+                ? cb.conjunction()
+                : cb.equal(root.get("assignedBy").get("id"), assignedById);
+    }
+
     /** Combines every optional filter field on {@link TaskFilterRequest} with AND. */
     public static Specification<Task> fromFilter(TaskFilterRequest filter) {
         return withStatus(filter.getTaskStatus())
@@ -114,6 +120,7 @@ public final class TaskSpecifications {
                 .and(withDepartment(filter.getDepartmentId()))
                 .and(withAssignee(filter.getAssigneeId()))
                 .and(withCreator(filter.getCreatedById()))
+                .and(withAssignedBy(filter.getAssignedById()))
                 .and(withKeyword(filter.getTitleContains()));
     }
 }

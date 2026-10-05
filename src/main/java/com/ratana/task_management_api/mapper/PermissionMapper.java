@@ -23,6 +23,7 @@ public class PermissionMapper {
                 .action(entity.getAction())
                 .description(entity.getDescription())
                 .active(Boolean.TRUE.equals(entity.isActive()))
+                .systemDefined(Boolean.TRUE.equals(entity.isSystemDefined()))
                 .build();
 
     }

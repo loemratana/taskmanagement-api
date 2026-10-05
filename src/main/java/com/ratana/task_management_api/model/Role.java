@@ -39,6 +39,10 @@ public class Role {
     @Column(name = "is_active")
     private boolean active = true;
 
+    /** Built-in role (e.g. ADMIN) that code references by name — blocks rename/delete. */
+    @Column(name = "is_system_defined", nullable = false)
+    private boolean systemDefined = false;
+
     @CreationTimestamp
     @Column(updatable = false)
     private Instant createdAt;

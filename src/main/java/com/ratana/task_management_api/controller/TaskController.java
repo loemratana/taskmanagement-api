@@ -1,19 +1,16 @@
 package com.ratana.task_management_api.controller;
 
-import com.ratana.task_management_api.dto.request.AssignMultipleUsersRequest;
-import com.ratana.task_management_api.dto.request.AssignTaskRequest;
-import com.ratana.task_management_api.dto.request.CreateTaskRequest;
-import com.ratana.task_management_api.dto.request.ReminderSettingsUpdateRequest;
-import com.ratana.task_management_api.dto.request.TaskCommentRequest;
-import com.ratana.task_management_api.dto.request.TaskFilterRequest;
-import com.ratana.task_management_api.dto.request.UpdateTaskRequest;
+import com.ratana.task_management_api.dto.request.*;
 import com.ratana.task_management_api.dto.response.ApiResponse;
 import com.ratana.task_management_api.dto.response.ErrorResponse;
+import com.ratana.task_management_api.dto.response.KpiSummaryResponse;
+import com.ratana.task_management_api.dto.response.ManagerAssignedKpiResponse;
 import com.ratana.task_management_api.dto.response.PageResponse;
 import com.ratana.task_management_api.dto.response.ReminderSettingsResponse;
 import com.ratana.task_management_api.dto.response.TaskAssignmentResponse;
 import com.ratana.task_management_api.dto.response.TaskCommentResponse;
 import com.ratana.task_management_api.dto.response.TaskResponse;
+import com.ratana.task_management_api.dto.response.TaskReviewResponse;
 import com.ratana.task_management_api.security.UserPrincipal;
 import com.ratana.task_management_api.service.TaskCommentService;
 import com.ratana.task_management_api.service.TaskReminderService;
@@ -51,7 +48,7 @@ public class TaskController {
 
     @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Create task", description = "Create a new task and optionally assign a user.")
-    @PreAuthorize("hasAuthority('tasks:create')")
+    @PreAuthorize("hasAuthority(T(com.ratana.task_management_api.security.permission.Permissions).TASK_CREATE)")
     public ResponseEntity<ApiResponse<TaskResponse>> createTask(
             @Valid @RequestBody CreateTaskRequest request,
             @AuthenticationPrincipal UserPrincipal principal) {
@@ -71,6 +68,38 @@ public class TaskController {
             @ParameterObject Pageable pageable,
             @AuthenticationPrincipal UserPrincipal principal) {
         return ResponseEntity.ok(ApiResponse.success(taskService.searchTasks(filter, pageable, principal)));
+    }
+
+    @PostMapping(value = "/bulk", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Create task for a department/position",
+            description = "Creates one task per active user in the department, optionally filtered by position.")
+    @PreAuthorize("hasAuthority(T(com.ratana.task_management_api.security.permission.Permissions).TASK_CREATE)")
+    public ResponseEntity<ApiResponse<List<TaskResponse>>> createTasksForGroup(
+            @Valid @RequestBody BulkCreateTaskRequest request,
+            @AuthenticationPrincipal UserPrincipal principal) {
+
+        List<TaskResponse> response = taskService.createTasksForGroup(request, principal);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.success(response));
+    }
+
+    @GetMapping("/me/kpi")
+    @Operation(summary = "Get the current user's KPI summary",
+            description = "Completion-rate KPI computed server-side from the caller's own assigned tasks " +
+                    "(total, completed, in-progress, overdue, and a completion-rate percentage). " +
+                    "This is a real, self-derived metric — not a manager-assigned score or a cross-employee rank.")
+    public ResponseEntity<ApiResponse<KpiSummaryResponse>> getMyKpi(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.success(taskService.getMyKpiSummary(principal)));
+    }
+
+    @GetMapping("/me/assigned-kpi")
+    @Operation(summary = "Get the current manager's assigned-task KPI summary",
+            description = "Dashboard counts for tasks the caller has assigned (total, pending/in-progress, " +
+                    "to-do, in review, done, and overdue). Scoped by who assigned the task, not by " +
+                    "manager_id direct reports.")
+    public ResponseEntity<ApiResponse<ManagerAssignedKpiResponse>> getManagerAssignedKpi(
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.success(taskService.getManagerAssignedKpiSummary(principal)));
     }
 
     @GetMapping("/{id}")
@@ -100,7 +129,7 @@ public class TaskController {
 
     @PatchMapping("/{id}/assignee")
     @Operation(summary = "Assign a task")
-    @PreAuthorize("hasAnyAuthority('tasks:assign:all','tasks:assign:department')")
+    @PreAuthorize("hasAnyAuthority(T(com.ratana.task_management_api.security.permission.Permissions).TASK_ASSIGN_ALL,T(com.ratana.task_management_api.security.permission.Permissions).TASK_ASSIGN_DEPARTMENT,T(com.ratana.task_management_api.security.permission.Permissions).TASK_ASSIGN_TEAM)")
     public ResponseEntity<ApiResponse<TaskResponse>> assignTask(
             @PathVariable UUID id,
             @Valid @RequestBody AssignTaskRequest request) {
@@ -110,7 +139,7 @@ public class TaskController {
     @PostMapping(value = "/{id}/assignees", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Add assignees to a task",
             description = "Adds one or more additional users to a task's multi-assignee list. Users already assigned are skipped.")
-    @PreAuthorize("hasAnyAuthority('tasks:assign:all','tasks:assign:department')")
+    @PreAuthorize("hasAnyAuthority(T(com.ratana.task_management_api.security.permission.Permissions).TASK_ASSIGN_ALL,T(com.ratana.task_management_api.security.permission.Permissions).TASK_ASSIGN_DEPARTMENT,T(com.ratana.task_management_api.security.permission.Permissions).TASK_ASSIGN_TEAM)")
     public ResponseEntity<ApiResponse<List<TaskAssignmentResponse>>> assignUsers(
             @PathVariable UUID id,
             @Valid @RequestBody AssignMultipleUsersRequest request) {
@@ -124,6 +153,25 @@ public class TaskController {
             @RequestBody Map<String, String> body) {
         String status = body.get("status");
         return ResponseEntity.ok(ApiResponse.success(taskService.changeStatus(id, status)));
+    }
+
+    @PatchMapping(value = "/{id}/review", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Approve or reject a task's submitted work with a rating",
+            description = "Moves the task to APPROVED or REJECTED and records a 1-5 rating plus a required comment. "
+                    + "Only the assigner or a department manager with review permission can do this. "
+                    + "One review per task — reviewing again overwrites the previous rating/comment.")
+    public ResponseEntity<ApiResponse<TaskReviewResponse>> reviewTask(
+            @PathVariable UUID id,
+            @Valid @RequestBody ReviewTaskRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(taskService.reviewTask(id, request)));
+    }
+
+    @GetMapping(value = "/{id}/review", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Get a task's review", description = "Returns null if the task hasn't been reviewed yet.")
+    public ResponseEntity<ApiResponse<TaskReviewResponse>> getReview(
+            @PathVariable UUID id,
+            @AuthenticationPrincipal UserPrincipal principal) {
+        return ResponseEntity.ok(ApiResponse.success(taskService.getReview(id, principal)));
     }
 
     @PostMapping(value = "/{id}/comments", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)

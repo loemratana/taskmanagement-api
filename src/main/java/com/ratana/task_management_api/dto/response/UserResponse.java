@@ -9,8 +9,6 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
-import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 @Schema(description = "User details")
@@ -30,7 +28,7 @@ public class UserResponse {
     Summary position;
     Summary department;
     Summary manager;
-    Set<Summary> roles;
+    Summary role;
 
 
 

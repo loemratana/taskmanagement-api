@@ -10,8 +10,10 @@ import com.ratana.task_management_api.enums.NotificationType;
 import com.ratana.task_management_api.exception.NotificationException;
 import com.ratana.task_management_api.model.Notification;
 import com.ratana.task_management_api.model.NotificationDelivery;
+import com.ratana.task_management_api.model.User;
 import com.ratana.task_management_api.repository.NotificationDeliveryRepository;
 import com.ratana.task_management_api.repository.NotificationRepository;
+import com.ratana.task_management_api.repository.UserRepository;
 import com.ratana.task_management_api.service.NotificationPreferenceService;
 import com.ratana.task_management_api.service.NotificationService;
 import lombok.RequiredArgsConstructor;
@@ -26,7 +28,11 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -37,6 +43,7 @@ public class NotificationServiceImpl implements NotificationService {
     private final NotificationDeliveryRepository deliveryRepository;
     private final NotificationPreferenceService preferenceService;
     private final NotificationDispatcher dispatcher;
+    private final UserRepository userRepository;
 
     @Override
     @Transactional
@@ -110,9 +117,18 @@ public class NotificationServiceImpl implements NotificationService {
 
     @Override
     public Page<NotificationResponse> getMyNotifications(UUID currentUserId, Pageable pageable) {
-        return notificationRepository
-                .findByRecipientIdOrderByCreatedAtDesc(currentUserId, pageable)
-                .map(this::toResponse);
+        Page<Notification> page = notificationRepository
+                .findByRecipientIdOrderByCreatedAtDesc(currentUserId, pageable);
+
+        List<UUID> senderIds = page.getContent().stream()
+                .map(Notification::getSenderId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<UUID, User> sendersById = userRepository.findAllById(senderIds).stream()
+                .collect(Collectors.toMap(User::getId, Function.identity()));
+
+        return page.map(n -> toResponse(n, sendersById.get(n.getSenderId())));
     }
 
     @Override
@@ -121,6 +137,7 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     @Override
+    @Transactional
     public void markAsRead(UUID notificationId, UUID currentUserId) {
         int updated = notificationRepository.markAsRead(notificationId, currentUserId);
         if (updated == 0) {
@@ -129,10 +146,19 @@ public class NotificationServiceImpl implements NotificationService {
     }
 
     private NotificationResponse toResponse(Notification n) {
+        User sender = n.getSenderId() != null
+                ? userRepository.findById(n.getSenderId()).orElse(null)
+                : null;
+        return toResponse(n, sender);
+    }
+
+    private NotificationResponse toResponse(Notification n, User sender) {
         return NotificationResponse.builder()
                 .id(n.getId())
                 .recipientId(n.getRecipientId())
                 .senderId(n.getSenderId())
+                .senderName(sender != null ? sender.getFullName() : null)
+                .senderAvatarUrl(sender != null ? sender.getAvatarUrl() : null)
                 .title(n.getTitle())
                 .message(n.getMessage())
                 .type(n.getType())

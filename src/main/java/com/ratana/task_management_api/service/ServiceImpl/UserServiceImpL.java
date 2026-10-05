@@ -1,12 +1,16 @@
 package com.ratana.task_management_api.service.ServiceImpl;
 
 import com.ratana.task_management_api.dto.request.*;
+import com.ratana.task_management_api.dto.response.EmployeeHierarchyResponse;
+import com.ratana.task_management_api.dto.response.ManagerResponse;
+import com.ratana.task_management_api.dto.response.OrgMemberResponse;
 import com.ratana.task_management_api.dto.response.PageResponse;
 import com.ratana.task_management_api.dto.response.UserResponse;
 import com.ratana.task_management_api.exception.DuplicateResourceException;
 import com.ratana.task_management_api.exception.InvalidPasswordException;
 import com.ratana.task_management_api.exception.InvalidRequestException;
 import com.ratana.task_management_api.exception.ResourceNotFoundException;
+import com.ratana.task_management_api.mapper.OrgHierarchyMapper;
 import com.ratana.task_management_api.mapper.UserMapper;
 import com.ratana.task_management_api.model.Department;
 import com.ratana.task_management_api.model.Position;
@@ -16,6 +20,7 @@ import com.ratana.task_management_api.repository.DepartmentRepository;
 import com.ratana.task_management_api.repository.PositionRepository;
 import com.ratana.task_management_api.repository.RoleRepository;
 import com.ratana.task_management_api.repository.UserRepository;
+import com.ratana.task_management_api.repository.projection.OrgHierarchyRow;
 import com.ratana.task_management_api.service.UserService;
 import com.ratana.task_management_api.utility.UserSpecifications;
 import lombok.RequiredArgsConstructor;
@@ -26,9 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import java.util.HashSet;
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
 
 
@@ -48,6 +51,8 @@ public class UserServiceImpL implements UserService {
     private final CloudinaryServiceImpL cloudinaryServiceImpL;
 
     private final RoleRepository roleRepository;
+
+    private final OrgHierarchyMapper orgHierarchyMapper;
     @Override
     public UserResponse create(UserCreateRequest request) {
         if (userRepository.existsByEmail(request.getEmail())) {
@@ -70,11 +75,7 @@ public class UserServiceImpL implements UserService {
 
         }
 
-        Role employeeRole = roleRepository.findByNameIgnoreCase("EMPLOYEE")
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("EMPLOYEE role not found"));
-
-        user.setRoles(Set.of(employeeRole));
+        user.setRole(getRoleOrThrow(request.getRoleId()));
 
 
         return userMapper.toResponse(userRepository.save(user));
@@ -102,6 +103,9 @@ public class UserServiceImpL implements UserService {
         }
 
         userMapper.upateEntity(user,request);
+        if (request.getRoleId() != null) {
+            user.setRole(getRoleOrThrow(request.getRoleId()));
+        }
         return userMapper.toResponse(user);
     }
 
@@ -131,32 +135,13 @@ public class UserServiceImpL implements UserService {
 
     @Override
     @Transactional
-    public UserResponse assignRoles(UUID id, AssignRolesRequest request) {
+    public UserResponse assignRole(UUID id, AssignRoleRequest request) {
 
         User user = getUserOrThrow(id);
 
-        if (request.getRoleIds() == null || request.getRoleIds().isEmpty()) {
-            throw new InvalidRequestException(
-                    "At least one role ID is required"
-            );
-        }
-        Set<Role> roles = new HashSet<>(
-                roleRepository.findAllById(
-                        request.getRoleIds()
-                )
-        );
-        if (roles.size() != request.getRoleIds().size()) {
-            throw new InvalidRequestException("One or more role IDs do not exist");
-        }
-        boolean hasInactiveRole = roles.stream().anyMatch(role -> !role.isActive());
-        if (hasInactiveRole)
-        {
-            throw new  InvalidRequestException("Role has been inactive");
-        }
-
-        user.setRoles(roles);
+        user.setRole(getRoleOrThrow(request.getRoleId()));
         userRepository.save(user);
-        log.info("Assigned roles {}",user.getRoles());
+        log.info("Assigned role {}", user.getRole().getName());
 
         return userMapper.toResponse(user);
     }
@@ -184,7 +169,9 @@ public class UserServiceImpL implements UserService {
             throw new InvalidRequestException("Manager is not active");
         }
         // Prevent circular hierarchy
-        assertNoManagerCycle(user, manager);
+        if (userRepository.wouldCreateManagerCycle(user.getId(), manager.getId())) {
+            throw new InvalidRequestException("This assignment would create a manager cycle");
+        }
         user.setManager(manager);
         userRepository.save(user);
 
@@ -195,8 +182,24 @@ public class UserServiceImpL implements UserService {
 
 
     @Override
+    @Transactional
     public UserResponse assignOrg(UUID id, AssignOrgRequest request) {
-        return null;
+
+        if (request.getDepartmentId() == null && request.getPositionId() == null) {
+            throw new InvalidRequestException("Provide a departmentId and/or a positionId");
+        }
+
+        User user = getUserOrThrow(id);
+
+        if (request.getDepartmentId() != null) {
+            user.setDepartment(getDepartmentOrThrow(request.getDepartmentId()));
+        }
+        if (request.getPositionId() != null) {
+            user.setPosition(getPositionOrThrow(request.getPositionId()));
+        }
+
+        userRepository.save(user);
+        return userMapper.toResponse(user);
     }
 
     @Override
@@ -236,8 +239,48 @@ public class UserServiceImpL implements UserService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<UserResponse> getDirectReports(UUID managerId) {
-        return List.of();
+        if (!userRepository.existsById(managerId)) {
+            throw new ResourceNotFoundException("User not found: " + managerId);
+        }
+        return userRepository.findUserByManagerId(managerId).stream()
+                .map(userMapper::toResponse)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ManagerResponse getManager(UUID id) {
+        User user = getUserOrThrow(id);
+        return user.getManager() == null ? null : userMapper.toManagerResponse(user.getManager());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public EmployeeHierarchyResponse getHierarchy(UUID id) {
+        List<OrgHierarchyRow> chainRows = userRepository.findManagementChain(id);
+        OrgHierarchyRow self = chainRows.stream()
+                .filter(row -> row.getLevel() == 0)
+                .findFirst()
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + id));
+
+        int depth = chainRows.stream().mapToInt(OrgHierarchyRow::getLevel).max().orElse(0);
+        List<OrgMemberResponse> managementChain = chainRows.stream()
+                .filter(row -> row.getLevel() > 0)
+                .map(orgHierarchyMapper::toMember)
+                .toList();
+
+        List<OrgHierarchyRow> subtreeRows = userRepository.findSubtreeUnderManager(id);
+
+        return EmployeeHierarchyResponse.builder()
+                .id(self.getId())
+                .fullName(self.getFullName())
+                .avatarUrl(self.getAvatarUrl())
+                .level(depth)
+                .managementChain(managementChain)
+                .subordinates(orgHierarchyMapper.toMembers(subtreeRows))
+                .build();
     }
 
     // --- helpers -----------------------------------------------------------
@@ -252,22 +295,19 @@ public class UserServiceImpL implements UserService {
 
     }
 
-    private void assertNoManagerCycle(User user,User prospectiveManager)
-    {
-        User current = prospectiveManager;
-        while (current !=null)
-        {
-            if (current.getId().equals(user.getId()))
-            {
-                throw  new InvalidRequestException("This assignment would create a manager cycle");
-            }
-        }
-        current= current.getManager();
-    }
-
     private Department getDepartmentOrThrow(UUID id)
     {
         return departmentRepository.findById(id).orElseThrow(() ->new ResourceNotFoundException("Position not found with {}"+id));
 
+    }
+
+    private Role getRoleOrThrow(UUID id)
+    {
+        Role role = roleRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Role not found with id: " + id));
+        if (!role.isActive()) {
+            throw new InvalidRequestException("Role has been inactive");
+        }
+        return role;
     }
 }

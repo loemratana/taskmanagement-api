@@ -13,6 +13,7 @@ import com.ratana.task_management_api.model.Department;
 import com.ratana.task_management_api.model.User;
 import com.ratana.task_management_api.repository.DepartmentRepository;
 import com.ratana.task_management_api.repository.UserRepository;
+import com.ratana.task_management_api.security.role.Roles;
 import com.ratana.task_management_api.service.DepartmentService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -99,8 +100,9 @@ public class DepartmentServiceImpl implements DepartmentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public List<DepartmentTreeResponse> getTree() {
-        return List.of();
+        return departmentMapper.toTreeResponseList(departmentRepository.findAllByOrderByNameAsc());
     }
 
     @Override
@@ -126,16 +128,16 @@ public class DepartmentServiceImpl implements DepartmentService {
     public DepartmentResponse assignManager(UUID departmentId, UUID managerId) {
 
         Department department = departmentRepository.findById(departmentId).orElseThrow(()->new ResourceNotFoundException("Department not found with id:"+departmentId));
-        User manager = userRepository.findByIdWithRoles(managerId)
+        User manager = userRepository.findByIdWithRole(managerId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException(
                                 "Manager not found with id: " + managerId
                         )
                 );
 
-        Set<String> allowedRoles = Set.of("MANAGER", "ADMIN");
+        Set<String> allowedRoles = Set.of(Roles.MANAGER, Roles.ADMIN);
 
-        boolean hasManagerRole  = manager.getRoles().stream().anyMatch(role -> allowedRoles.contains(role.getName()));
+        boolean hasManagerRole = manager.getRole() != null && allowedRoles.contains(manager.getRole().getName());
         if (!hasManagerRole) {
             throw new BadRequestException(
                     "User must have ADMIN or MANAGER role to be assigned as department manager"

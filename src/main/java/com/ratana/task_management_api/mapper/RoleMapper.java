@@ -28,6 +28,7 @@ public class RoleMapper {
                 .name(entity.getName())
                 .description(entity.getDescription())
                 .active(entity.isActive())
+                .systemDefined(entity.isSystemDefined())
                 .permissions(permissions)
                 .created(entity.getCreatedAt())
                 .updated(entity.getUpdatedAt())

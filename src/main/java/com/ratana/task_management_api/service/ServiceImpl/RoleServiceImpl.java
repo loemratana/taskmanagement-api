@@ -4,6 +4,7 @@ import com.ratana.task_management_api.dto.request.AssignPermissionsRequest;
 import com.ratana.task_management_api.dto.request.RoleRequest;
 import com.ratana.task_management_api.dto.response.RoleResponse;
 import com.ratana.task_management_api.exception.DuplicateResourceException;
+import com.ratana.task_management_api.exception.ProtectedResourceException;
 import com.ratana.task_management_api.exception.ResourceNotFoundException;
 import com.ratana.task_management_api.mapper.RoleMapper;
 import com.ratana.task_management_api.model.Permission;
@@ -57,9 +58,14 @@ public class RoleServiceImpl implements RoleService {
     public RoleResponse update(UUID id, RoleRequest request) {
         Role role = findEntityById(id);
 
-        if (!request.getName().equalsIgnoreCase(role.getName())
-                && roleRepository.existsByNameIgnoreCase(request.getName())) {
-            throw new DuplicateResourceException("Role already exists: " + request.getName());
+        if (!request.getName().equalsIgnoreCase(role.getName())) {
+            if (role.isSystemDefined()) {
+                throw new ProtectedResourceException(
+                        "Role '" + role.getName() + "' is system-defined and cannot be renamed.");
+            }
+            if (roleRepository.existsByNameIgnoreCase(request.getName())) {
+                throw new DuplicateResourceException("Role already exists: " + request.getName());
+            }
         }
 
         roleMapper.updateEntityFromRequest(request, role);
@@ -88,6 +94,10 @@ public class RoleServiceImpl implements RoleService {
     @Transactional
     public void delete(UUID id) {
         Role role = findEntityById(id);
+        if (role.isSystemDefined()) {
+            throw new ProtectedResourceException(
+                    "Role '" + role.getName() + "' is system-defined and cannot be deleted.");
+        }
         // Soft delete — users holding this role simply lose its permissions going forward
         role.setActive(false);
         roleRepository.save(role);

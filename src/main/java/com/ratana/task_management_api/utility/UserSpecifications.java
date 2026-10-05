@@ -2,8 +2,6 @@ package com.ratana.task_management_api.utility;
 
 import com.ratana.task_management_api.dto.request.UserFilterRequest;
 import com.ratana.task_management_api.model.User;
-import jakarta.persistence.criteria.Join;
-import jakarta.persistence.criteria.JoinType;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.ArrayList;
@@ -42,9 +40,7 @@ public final class UserSpecifications {
                 predicates.add(cb.equal(root.get("active"), filter.getActive()));
             }
             if (filter.getRoleId() != null) {
-                Join<Object, Object> roles = root.join("roles", JoinType.INNER);
-                predicates.add(cb.equal(roles.get("id"), filter.getRoleId()));
-                query.distinct(true);
+                predicates.add(cb.equal(root.get("role").get("id"), filter.getRoleId()));
             }
 
             return cb.and(predicates.toArray(new Predicate[0]));

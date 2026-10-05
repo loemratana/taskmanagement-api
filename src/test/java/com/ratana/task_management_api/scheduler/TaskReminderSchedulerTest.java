@@ -20,6 +20,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -73,6 +74,20 @@ class TaskReminderSchedulerTest {
 
         scheduler.checkReminders();
 
+        verify(taskReminderService).processDueReminder(eq(task), any(TaskReminderSchedule.class), eq(LocalDate.of(2026, 8, 31)));
+    }
+
+    @Test
+    @DisplayName("Settings found by the batch lookup are used without a per-task getOrCreateSettings call")
+    void batchLoadedSettings_skipPerTaskLookup() {
+        Task task = newTask();
+        when(taskRepository.findActiveNonTerminalWithAssignee(any())).thenReturn(List.of(task));
+        when(taskReminderService.findSettingsByTaskIds(List.of(task.getId())))
+                .thenReturn(Map.of(task.getId(), settingWith(task, true, LocalTime.of(9, 0))));
+
+        scheduler.checkReminders();
+
+        verify(taskReminderService, never()).getOrCreateSettings(any());
         verify(taskReminderService).processDueReminder(eq(task), any(TaskReminderSchedule.class), eq(LocalDate.of(2026, 8, 31)));
     }
 

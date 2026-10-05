@@ -33,14 +33,14 @@ public class DepartmentTelegramGroupController {
     private final DepartmentTelegramGroupService groupService;
 
     @Operation(summary = "List all department Telegram group mappings", description = "Admin only.")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @GetMapping
     public ResponseEntity<ApiResponse<List<DepartmentTelegramGroupResponse>>> getAll() {
         return ResponseEntity.ok(ApiResponse.success(groupService.getAll()));
     }
 
     @Operation(summary = "Get the Telegram group mapping for a department", description = "Admin only.")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200", description = "Mapping found",
@@ -59,7 +59,7 @@ public class DepartmentTelegramGroupController {
             summary = "Configure a department's Telegram group",
             description = "Admin only. Verifies the bot can access the chat before saving."
     )
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Mapping created"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Department not found"),
@@ -78,7 +78,7 @@ public class DepartmentTelegramGroupController {
             summary = "Update a department's Telegram group mapping",
             description = "Admin only. Re-verifies the bot's access if the chat id changes. Department cannot be changed."
     )
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Mapping updated"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Mapping not found"),
@@ -95,7 +95,7 @@ public class DepartmentTelegramGroupController {
             summary = "Deactivate a department's Telegram group mapping",
             description = "Admin only. Soft-disables routing without losing audit history."
     )
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Mapping deactivated"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Mapping not found")
@@ -110,7 +110,7 @@ public class DepartmentTelegramGroupController {
             summary = "Send a test message to a department's Telegram group",
             description = "Admin only. Confirms the bot can actually post to the configured chat."
     )
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Test message sent"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Mapping not found")

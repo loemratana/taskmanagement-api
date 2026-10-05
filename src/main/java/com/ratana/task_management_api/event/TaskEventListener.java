@@ -98,13 +98,31 @@ public class TaskEventListener {
                 return;
             }
 
+            NotificationType type;
+            String title;
+            String message;
+
+            if ("APPROVED".equals(event.getNewStatus())) {
+                type = NotificationType.APPROVAL_APPROVED;
+                title = "Task Approved";
+                message = event.getChangedByName() + " approved your task: \"" + event.getTaskTitle() + "\"";
+            } else if ("REJECTED".equals(event.getNewStatus())) {
+                type = NotificationType.APPROVAL_REJECTED;
+                title = "Task Rejected";
+                message = event.getChangedByName() + " rejected your task: \"" + event.getTaskTitle() + "\"";
+            } else {
+                type = NotificationType.TASK_UPDATED;
+                title = "Task Status Updated";
+                message = "Task \"" + event.getTaskTitle() + "\" status changed from "
+                        + event.getOldStatus() + " → " + event.getNewStatus();
+            }
+
             notificationService.send(NotificationRequest.builder()
                     .recipientId(event.getRecipientId())
                     .senderId(event.getChangedBy())
-                    .title("Task Status Updated")
-                    .message("Task \"" + event.getTaskTitle() + "\" status changed from "
-                            + event.getOldStatus() + " → " + event.getNewStatus())
-                    .type(NotificationType.TASK_UPDATED)
+                    .title(title)
+                    .message(message)
+                    .type(type)
                     .priority(NotificationPriority.NORMAL)
                     .referenceType("TASK")
                     .referenceId(event.getTaskId())
@@ -114,8 +132,8 @@ public class TaskEventListener {
                     ))
                     .build());
 
-            log.info("Notification sent → TaskStatusChanged | taskId={} | recipientId={}",
-                    event.getTaskId(), event.getRecipientId());
+            log.info("Notification sent → TaskStatusChanged | type={} | taskId={} | recipientId={}",
+                    type, event.getTaskId(), event.getRecipientId());
         } catch (Exception e) {
             log.error("Failed to send TaskStatusChanged notification | taskId={}", event.getTaskId(), e);
         }

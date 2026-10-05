@@ -4,6 +4,7 @@ package com.ratana.task_management_api.service.ServiceImpl;
 import com.ratana.task_management_api.dto.request.PermissionRequest;
 import com.ratana.task_management_api.dto.response.PermissionResponse;
 import com.ratana.task_management_api.exception.DuplicateResourceException;
+import com.ratana.task_management_api.exception.ProtectedResourceException;
 import com.ratana.task_management_api.exception.ResourceNotFoundException;
 import com.ratana.task_management_api.mapper.PermissionMapper;
 import com.ratana.task_management_api.model.Permission;
@@ -49,12 +50,18 @@ public class PermissionServiceImpl implements PermissionService {
         Permission permission = permissionRepository.findById(id).orElseThrow(()->new ResourceNotFoundException("Permission not found"+id));
 
         if (request.getName() != null && !request.getName().equalsIgnoreCase(permission.getName())) {
-            throw new DuplicateResourceException("Permission already exists"+request.getName());
+            if (permission.isSystemDefined()) {
+                throw new ProtectedResourceException(
+                        "Permission '" + permission.getName() + "' is system-defined and cannot be renamed.");
+            }
+            if (permissionRepository.existsByNameIgnoreCase(request.getName())) {
+                throw new DuplicateResourceException("Permission already exists: " + request.getName());
+            }
         }
         permissionMapper.updateEntityFromRequest(request,permission);
         Permission saved = permissionRepository.save(permission);
         log.info("Permission updated: {} ({})", saved.getName(), saved.getId());
-        return null;
+        return permissionMapper.toResponse(saved);
     }
 
     @Override
@@ -72,6 +79,10 @@ public class PermissionServiceImpl implements PermissionService {
     public void delete(UUID id) {
 
         Permission permission = findEntityById(id);
+        if (permission.isSystemDefined()) {
+            throw new ProtectedResourceException(
+                    "Permission '" + permission.getName() + "' is system-defined and cannot be deleted.");
+        }
         // Soft delete — roles referencing this permission simply stop granting it going forward
         permission.setActive(false);
         permissionRepository.save(permission);

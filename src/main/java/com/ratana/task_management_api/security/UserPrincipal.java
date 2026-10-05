@@ -56,8 +56,7 @@ public class UserPrincipal implements UserDetails {
 
     public static UserPrincipal createUserPrincipal(User user) {
         Collection<? extends GrantedAuthority> authorities =
-                Stream.ofNullable(user.getRoles())
-                        .flatMap(Collection::stream)
+                Stream.ofNullable(user.getRole())
                         .flatMap(role -> Stream.concat(
                                 Stream.of(new SimpleGrantedAuthority("ROLE_" + role.getName())),
                                 Stream.ofNullable(role.getPermissions()).flatMap(Collection::stream)

@@ -12,7 +12,8 @@ spring:
     properties:
       hibernate:
         format_sql: true
-        show_sql: true
+        # SQL output is controlled via logging.level.org.hibernate.SQL below (not show_sql, which bypasses the logger).
+        show_sql: false
 
 app:
   jwt:
@@ -33,6 +34,8 @@ logging:
     com.ratana.task_management_api: TRACE
     org.springframework.web: info
     org.springframework.security: info
+    # Flip to debug to see SQL statements (add org.hibernate.orm.jdbc.bind: trace for bound parameters).
+    org.hibernate.SQL: info
 
 springdoc:
   api-docs:

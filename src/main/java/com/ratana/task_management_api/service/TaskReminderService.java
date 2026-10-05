@@ -8,6 +8,8 @@ import com.ratana.task_management_api.model.TaskReminderSetting;
 import com.ratana.task_management_api.security.UserPrincipal;
 
 import java.time.LocalDate;
+import java.util.Collection;
+import java.util.Map;
 import java.util.UUID;
 
 public interface TaskReminderService {
@@ -20,6 +22,9 @@ public interface TaskReminderService {
 
     /** Loads the task's reminder setting, self-provisioning system defaults on first use. Used by the scheduler. */
     TaskReminderSetting getOrCreateSettings(Task task);
+
+    /** Read-only batch lookup keyed by task id. Tasks without a persisted setting are absent from the map. */
+    Map<UUID, TaskReminderSetting> findSettingsByTaskIds(Collection<UUID> taskIds);
 
     /**
      * The per-candidate unit of work: claim-then-send with duplicate protection via the

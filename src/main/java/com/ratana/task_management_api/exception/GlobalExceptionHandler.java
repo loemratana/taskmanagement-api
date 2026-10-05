@@ -11,6 +11,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
@@ -28,6 +29,13 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorResponse> handleDuplicate(
             DuplicateResourceException ex, HttpServletRequest request) {
         log.warn("Duplicate resource: {}", ex.getMessage());
+        return build(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(ProtectedResourceException.class)
+    public ResponseEntity<ErrorResponse> handleProtectedResource(
+            ProtectedResourceException ex, HttpServletRequest request) {
+        log.warn("Protected resource modification blocked: {}", ex.getMessage());
         return build(HttpStatus.CONFLICT, ex.getMessage(), request);
     }
 
@@ -135,6 +143,43 @@ public class GlobalExceptionHandler {
 
         log.warn("Invalid assignment: {}", ex.getMessage());
         return  build(HttpStatus.UNPROCESSABLE_ENTITY, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(AttachmentNotFoundException.class)
+    public ResponseEntity<ErrorResponse> handleAttachmentNotFound(
+            AttachmentNotFoundException ex, HttpServletRequest request) {
+        log.warn("Attachment not found: {}", ex.getMessage());
+        return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(FileSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleFileSizeExceeded(
+            FileSizeExceededException ex, HttpServletRequest request) {
+        log.warn("File size exceeded: {}", ex.getMessage());
+        return build(HttpStatus.PAYLOAD_TOO_LARGE, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(UnsupportedFileTypeException.class)
+    public ResponseEntity<ErrorResponse> handleUnsupportedFileType(
+            UnsupportedFileTypeException ex, HttpServletRequest request) {
+        log.warn("Unsupported file type: {}", ex.getMessage());
+        return build(HttpStatus.UNSUPPORTED_MEDIA_TYPE, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ErrorResponse> handleMaxUploadSizeExceeded(
+            MaxUploadSizeExceededException ex, HttpServletRequest request) {
+        log.warn("Upload rejected, exceeds server upload limit: {}", ex.getMessage());
+        return build(HttpStatus.PAYLOAD_TOO_LARGE,
+                "File size exceeds the maximum allowed size of 20MB.", request);
+    }
+
+    @ExceptionHandler(SupabaseStorageException.class)
+    public ResponseEntity<ErrorResponse> handleSupabaseStorage(
+            SupabaseStorageException ex, HttpServletRequest request) {
+        log.error("Supabase storage operation failed: {}", ex.getMessage(), ex);
+        return build(HttpStatus.BAD_GATEWAY,
+                "Failed to store the file. Please try again.", request);
     }
 
     private ResponseEntity<ErrorResponse> build(HttpStatus status, String message, HttpServletRequest request) {

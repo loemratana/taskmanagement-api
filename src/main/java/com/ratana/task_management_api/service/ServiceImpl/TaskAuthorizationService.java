@@ -6,7 +6,7 @@ import com.ratana.task_management_api.exception.UnauthorizedTaskAccessException;
 import com.ratana.task_management_api.model.Task;
 import com.ratana.task_management_api.model.User;
 import com.ratana.task_management_api.security.UserPrincipal;
-import com.ratana.task_management_api.workflow.TaskPermissions;
+import com.ratana.task_management_api.security.permission.Permissions;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -24,7 +24,7 @@ public class TaskAuthorizationService {
     private final TaskPermissionService permissionService;
 
     public boolean canCreateTask(UserPrincipal actor) {
-        return permissionService.hasPermission(actor, TaskPermissions.TASK_CREATE);
+        return permissionService.hasPermission(actor, Permissions.TASK_CREATE);
     }
 
     public void assertCanCreate(UserPrincipal actor) {
@@ -35,11 +35,14 @@ public class TaskAuthorizationService {
 
     /** targetUser is the employee being considered for assignment. */
     public boolean canAssignTask(UserPrincipal actor, Task task, User targetUser) {
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_ASSIGN_ALL)) {
+        if (permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_ALL)) {
             return true;
         }
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_ASSIGN_DEPARTMENT)) {
+        if (permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_DEPARTMENT)) {
             return sameDepartment(actor, task) && sameDepartment(actor, targetUser);
+        }
+        if (permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_TEAM)) {
+            return isDirectReport(actor, targetUser);
         }
         return false;
     }
@@ -51,15 +54,20 @@ public class TaskAuthorizationService {
     }
 
     public boolean canViewTask(UserPrincipal actor, Task task) {
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_VIEW_ALL)
-                || permissionService.hasPermission(actor, TaskPermissions.TASK_ASSIGN_ALL)) {
+        if (permissionService.hasPermission(actor, Permissions.TASK_VIEW_ALL)
+                || permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_ALL)) {
             return true;
         }
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_VIEW_DEPARTMENT)
+        if (permissionService.hasPermission(actor, Permissions.TASK_VIEW_DEPARTMENT)
                 && sameDepartment(actor, task)) {
             return true;
         }
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_VIEW_ASSIGNED)
+        if ((permissionService.hasPermission(actor, Permissions.TASK_VIEW_TEAM)
+                || permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_TEAM))
+                && isDirectReport(actor, task)) {
+            return true;
+        }
+        if (permissionService.hasPermission(actor, Permissions.TASK_VIEW_ASSIGNED)
                 && isAssignee(actor, task)) {
             return true;
         }
@@ -73,15 +81,19 @@ public class TaskAuthorizationService {
     }
 
     public boolean canUpdateTask(UserPrincipal actor, Task task) {
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_ASSIGN_ALL)
-                || permissionService.hasPermission(actor, TaskPermissions.TASK_UPDATE)) {
+        if (permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_ALL)
+                || permissionService.hasPermission(actor, Permissions.TASK_UPDATE)) {
             return true;
         }
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_ASSIGN_DEPARTMENT)
+        if (permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_DEPARTMENT)
                 && sameDepartment(actor, task)) {
             return true;
         }
-        return permissionService.hasPermission(actor, TaskPermissions.TASK_UPDATE_OWN)
+        if (permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_TEAM)
+                && isDirectReport(actor, task)) {
+            return true;
+        }
+        return permissionService.hasPermission(actor, Permissions.TASK_UPDATE_OWN)
                 && isAssignee(actor, task);
     }
 
@@ -96,7 +108,7 @@ public class TaskAuthorizationService {
             return canCancel(actor, task);
         }
         if (task.getStatus().isTerminal() && target == TaskStatus.TODO) {
-            return permissionService.hasPermission(actor, TaskPermissions.TASK_TRANSITION_REOPEN_ALL);
+            return permissionService.hasPermission(actor, Permissions.TASK_TRANSITION_REOPEN_ALL);
         }
         if (target == TaskStatus.APPROVED || target == TaskStatus.REJECTED) {
             return canReview(actor, task);
@@ -105,34 +117,34 @@ public class TaskAuthorizationService {
             return canClose(actor, task);
         }
         if (target == TaskStatus.IN_PROGRESS || target == TaskStatus.IN_REVIEW) {
-            return permissionService.hasPermission(actor, TaskPermissions.TASK_TRANSITION_ADVANCE_OWN)
+            return permissionService.hasPermission(actor, Permissions.TASK_TRANSITION_ADVANCE_OWN)
                     && isAssignee(actor, task);
         }
         return false;
     }
 
     public boolean canReview(UserPrincipal actor, Task task) {
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_TRANSITION_REVIEW_ALL)
-                || permissionService.hasPermission(actor, TaskPermissions.TASK_ASSIGN_ALL)) {
+        if (permissionService.hasPermission(actor, Permissions.TASK_TRANSITION_REVIEW_ALL)
+                || permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_ALL)) {
             return true;
         }
-        return permissionService.hasPermission(actor, TaskPermissions.TASK_TRANSITION_REVIEW_DEPARTMENT)
+        return permissionService.hasPermission(actor, Permissions.TASK_TRANSITION_REVIEW_DEPARTMENT)
                 && sameDepartment(actor, task);
     }
 
     public boolean canClose(UserPrincipal actor, Task task) {
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_TRANSITION_CLOSE_ALL)) {
+        if (permissionService.hasPermission(actor, Permissions.TASK_TRANSITION_CLOSE_ALL)) {
             return true;
         }
-        return permissionService.hasPermission(actor, TaskPermissions.TASK_TRANSITION_CLOSE_DEPARTMENT)
+        return permissionService.hasPermission(actor, Permissions.TASK_TRANSITION_CLOSE_DEPARTMENT)
                 && sameDepartment(actor, task);
     }
 
     public boolean canCancel(UserPrincipal actor, Task task) {
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_TRANSITION_CANCEL_ALL)) {
+        if (permissionService.hasPermission(actor, Permissions.TASK_TRANSITION_CANCEL_ALL)) {
             return true;
         }
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_TRANSITION_CANCEL_DEPARTMENT)
+        if (permissionService.hasPermission(actor, Permissions.TASK_TRANSITION_CANCEL_DEPARTMENT)
                 && sameDepartment(actor, task)) {
             return true;
         }
@@ -140,19 +152,33 @@ public class TaskAuthorizationService {
     }
 
     public ViewScope resolveViewScope(UserPrincipal actor) {
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_VIEW_ALL)
-                || permissionService.hasPermission(actor, TaskPermissions.TASK_ASSIGN_ALL)) {
+        if (permissionService.hasPermission(actor, Permissions.TASK_VIEW_ALL)
+                || permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_ALL)) {
             return ViewScope.ALL;
         }
-        if (permissionService.hasPermission(actor, TaskPermissions.TASK_VIEW_DEPARTMENT)
-                || permissionService.hasPermission(actor, TaskPermissions.TASK_ASSIGN_DEPARTMENT)) {
+        if (permissionService.hasPermission(actor, Permissions.TASK_VIEW_DEPARTMENT)
+                || permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_DEPARTMENT)) {
             return ViewScope.DEPARTMENT;
+        }
+        if (permissionService.hasPermission(actor, Permissions.TASK_VIEW_TEAM)
+                || permissionService.hasPermission(actor, Permissions.TASK_ASSIGN_TEAM)) {
+            return ViewScope.TEAM;
         }
         return ViewScope.OWN;
     }
 
     public boolean isAssignee(UserPrincipal actor, Task task) {
         return task.isAssignee(actor.getId());
+    }
+
+    private boolean isDirectReport(UserPrincipal actor, Task task) {
+        return isDirectReport(actor, task.getAssignee());
+    }
+
+    private boolean isDirectReport(UserPrincipal actor, User user) {
+        return user != null
+                && user.getManager() != null
+                && Objects.equals(user.getManager().getId(), actor.getId());
     }
 
     private boolean isCreator(UserPrincipal actor, Task task) {

@@ -12,8 +12,6 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -23,14 +21,14 @@ import java.util.UUID;
 @AllArgsConstructor
 @NoArgsConstructor
 @NamedEntityGraph(
-        name = "User.withRolesAndPermissions",
+        name = "User.withRoleAndPermissions",
         attributeNodes = {
-                @NamedAttributeNode(value = "roles",subgraph = "rolesWithPermissions")
+                @NamedAttributeNode(value = "role", subgraph = "roleWithPermissions")
         }
         ,
         subgraphs = {
                 @NamedSubgraph(
-                        name = "rolesWithPermissions",
+                        name = "roleWithPermissions",
                         attributeNodes = @NamedAttributeNode("permissions")
                 )
         }
@@ -83,12 +81,8 @@ public class User  {
     private Instant lastLoginAt;
 
 
-    @ManyToMany(fetch = FetchType.LAZY)
-    @JoinTable(
-            name = "user_roles",
-            joinColumns = @JoinColumn(name = "user_id"),
-            inverseJoinColumns = @JoinColumn(name = "role_id")
-    )
-    private Set<Role> roles = new HashSet<>();
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "role_id", nullable = false)
+    private Role role;
 
 }

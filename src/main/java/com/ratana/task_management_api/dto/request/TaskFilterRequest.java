@@ -19,5 +19,6 @@ public class TaskFilterRequest {
     private UUID  departmentId;
     private UUID assigneeId;
     private UUID  createdById;
+    private UUID assignedById;
     private String titleContains;
 }

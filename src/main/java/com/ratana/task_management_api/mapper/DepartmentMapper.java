@@ -3,6 +3,7 @@ package com.ratana.task_management_api.mapper;
 
 import com.ratana.task_management_api.dto.request.DepartmentRequest;
 import com.ratana.task_management_api.dto.response.DepartmentResponse;
+import com.ratana.task_management_api.dto.response.DepartmentTreeResponse;
 import com.ratana.task_management_api.dto.response.ManagerResponse;
 import com.ratana.task_management_api.model.Department;
 import com.ratana.task_management_api.model.User;
@@ -61,6 +62,28 @@ public class DepartmentMapper {
     {
         return entities.stream().map(this::toResponse).toList();
 
+    }
+
+    /**
+     * Departments have no parent-department relationship in the current schema
+     * (no parent_department_id) — every department is returned as a top-level
+     * node with no children, i.e. a flat forest rather than a real tree.
+     */
+    public DepartmentTreeResponse toTreeResponse(Department entity) {
+        if (entity == null) {
+            return null;
+        }
+        return DepartmentTreeResponse.builder()
+                .id(entity.getId())
+                .name(entity.getName())
+                .managerId(getManagerId(entity))
+                .active(entity.isActive())
+                .children(List.of())
+                .build();
+    }
+
+    public List<DepartmentTreeResponse> toTreeResponseList(List<Department> entities) {
+        return entities.stream().map(this::toTreeResponse).toList();
     }
 
     private ManagerResponse toManagerResponse(User manager) {

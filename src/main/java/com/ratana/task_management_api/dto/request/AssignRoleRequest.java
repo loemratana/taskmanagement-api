@@ -1,20 +1,19 @@
 package com.ratana.task_management_api.dto.request;
 
-import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.util.Set;
 import java.util.UUID;
 
 
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
-public class AssignRolesRequest {
+public class AssignRoleRequest {
 
-    @NotEmpty
-    private Set<UUID> roleIds;
+    @NotNull
+    private UUID roleId;
 
 }

@@ -6,6 +6,7 @@ import com.ratana.task_management_api.dto.request.DepartmentRequest;
 import com.ratana.task_management_api.dto.response.ApiResponse;
 import com.ratana.task_management_api.dto.response.DepartmentMemberResponse;
 import com.ratana.task_management_api.dto.response.DepartmentResponse;
+import com.ratana.task_management_api.dto.response.DepartmentTreeResponse;
 import com.ratana.task_management_api.dto.response.ErrorResponse;
 import com.ratana.task_management_api.service.DepartmentService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -34,14 +35,16 @@ public class DepartmentController {
 
     private final DepartmentService departmentService;
 
-//    @Operation(summary = "Get department tree", description = "Returns all top-level departments with nested children, forming a full hierarchy tree.")
-//    @io.swagger.v3.oas.annotations.responses.ApiResponse(
-//            responseCode = "200", description = "Tree retrieved",
-//            content = @Content(schema = @Schema(implementation = DepartmentTreeResponse.class)))
-//    @GetMapping
-//    public ResponseEntity<ApiResponse<List<DepartmentTreeResponse>>> getTree() {
-//        return ResponseEntity.ok(ApiResponse.success(departmentService.getTree()));
-//    }
+    @Operation(summary = "Get department tree",
+            description = "Departments have no parent-department relationship in the current schema, so this currently " +
+                    "returns every department as a top-level node with empty children (a flat forest, not a real tree).")
+    @io.swagger.v3.oas.annotations.responses.ApiResponse(
+            responseCode = "200", description = "Departments retrieved",
+            content = @Content(schema = @Schema(implementation = DepartmentTreeResponse.class)))
+    @GetMapping("/tree")
+    public ResponseEntity<ApiResponse<List<DepartmentTreeResponse>>> getTree() {
+        return ResponseEntity.ok(ApiResponse.success(departmentService.getTree()));
+    }
 
     @Operation(summary = "List all departments (flat)", description = "Returns all active departments as a flat list, without hierarchy nesting.")
     @GetMapping
@@ -65,7 +68,7 @@ public class DepartmentController {
     }
 
     @Operation(summary = "Create a department", description = "Admin only. Creates a new department, optionally nested under a parent.")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Department created"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Department code already exists"),
@@ -80,7 +83,7 @@ public class DepartmentController {
     }
 
     @Operation(summary = "Update a department", description = "Admin only.")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Department updated"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Department not found"),
@@ -94,7 +97,7 @@ public class DepartmentController {
     }
 
     @Operation(summary = "Delete a department", description = "Admin only. Soft-deletes the department (deactivates it). Fails if child departments exist.")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Department deleted"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Department has active child departments"),
@@ -130,7 +133,7 @@ public class DepartmentController {
             summary = "Assign department manager",
             description = "Assign a user as department manager"
     )
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @PutMapping("/{departmentId}/manager")
     public ResponseEntity<ApiResponse<DepartmentResponse>> assignManager(
             @PathVariable UUID departmentId,

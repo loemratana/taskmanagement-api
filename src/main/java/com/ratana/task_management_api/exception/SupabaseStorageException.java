@@ -5,6 +5,6 @@ public class SupabaseStorageException extends RuntimeException {
         super(message);
     }
     public SupabaseStorageException(String message, Exception e) {
-        super(message);
+        super(message, e);
     }
 }

@@ -8,6 +8,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -26,48 +27,48 @@ public class TaskResponse {
 
     private String description;
 
-
-    // Status
     private TaskStatus status;
 
     private Priority priority;
 
 
-    // Delegation chain
     private UserRef creator;
 
     private UserRef assignedBy;
 
     private UserRef assignee;
 
+    private List<CommentResponse> comments;
+    private List<AttachmentResponse> attachments;
 
-    // Organization
+    /** Cheap counts for list/card views. Populated on every response;
+     *  {@code comments}/{@code attachments} above are only populated on the single-task detail view. */
+    private Integer commentCount;
+    private Integer attachmentCount;
+
+
+    private List<UserRef> assignees;
+
     private DepartmentRef department;
 
-
-    // Parent task
     private UUID parentTaskId;
 
-
-    // Timeline
     private LocalDateTime startDate;
 
     private LocalDate dueDate;
 
     private LocalDate completedAt;
 
-
-    // Audit
     private Instant createdAt;
 
     private Instant updatedAt;
 
-
-    // Progress
     private Integer progress;
 
+    private Integer rating;
 
-    // Nested User DTO
+    private TaskStatus reviewDecision;
+
     @Getter
     @Setter
     @Builder

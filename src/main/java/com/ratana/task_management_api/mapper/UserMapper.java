@@ -3,15 +3,13 @@ package com.ratana.task_management_api.mapper;
 import com.ratana.task_management_api.dto.request.UserCreateRequest;
 import com.ratana.task_management_api.dto.request.UserUpdateRequest;
 import com.ratana.task_management_api.dto.response.DepartmentMemberResponse;
-import com.ratana.task_management_api.dto.response.RoleResponse;
+import com.ratana.task_management_api.dto.response.ManagerResponse;
 import com.ratana.task_management_api.dto.response.Summary;
 import com.ratana.task_management_api.dto.response.UserResponse;
 import com.ratana.task_management_api.enums.UserStatus;
 import com.ratana.task_management_api.model.User;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
-
-import java.util.stream.Collectors;
 
 @Component
 public class UserMapper {
@@ -44,12 +42,12 @@ public class UserMapper {
                         user.getManager().getFullName()
                 ))
 
-                .roles(user.getRoles().stream()
-                        .map(role -> new Summary(
-                                role.getId(),
-                                role.getName()
-                        ))
-                        .collect(Collectors.toSet()))
+                .role(user.getRole() == null
+                        ? null
+                        : new Summary(
+                        user.getRole().getId(),
+                        user.getRole().getName()
+                ))
 
                 .lastLoginAt(user.getLastLoginAt())
                 .createdAt(user.getCreatedAt())
@@ -57,6 +55,15 @@ public class UserMapper {
                 .status(user.getStatus())
                 .build();
 
+    }
+
+    public ManagerResponse toManagerResponse(User manager) {
+        return ManagerResponse.builder()
+                .id(manager.getId())
+                .name(manager.getFullName())
+                .email(manager.getEmail())
+                .profile(manager.getAvatarUrl())
+                .build();
     }
 
     public DepartmentMemberResponse toMemberResponse(User user) {

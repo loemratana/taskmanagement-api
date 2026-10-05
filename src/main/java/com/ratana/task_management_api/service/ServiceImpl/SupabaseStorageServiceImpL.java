@@ -46,10 +46,9 @@ public class SupabaseStorageServiceImpL implements SupabaseStorageService {
                     .toBodilessEntity();
 
         } catch (Exception e) {
-            log.error("Failed to upload file. bucket={}, key={}", properties.bucket(), storageKey);
+            log.error("Failed to upload file. bucket={}, key={}", properties.bucket(), storageKey, e);
+            throw new SupabaseStorageException("Failed to upload file to storage.", e);
         }
-
-
     }
 
     @Override

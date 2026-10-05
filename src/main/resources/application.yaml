@@ -16,8 +16,8 @@ spring:
     enabled: true
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 10MB
+      max-file-size: 20MB
+      max-request-size: 20MB
 
   mail:
     host: ${SMTP_HOST:localhost}
@@ -55,7 +55,9 @@ app:
     default-timezone: ${TASK_REMINDER_DEFAULT_TIMEZONE:Asia/Phnom_Penh}
     default-times: "${TASK_REMINDER_DEFAULT_TIMES:09:00,13:00,17:00}"
 firebase:
-  credentials: ${FIREBASE_CREDENTIALS}
+  # No default value forced here — FirebaseConfig falls back to a classpath
+  # credentials file (or disables push gracefully) when this is blank.
+  credentials: ${FIREBASE_CREDENTIALS:}
 info:
   app:
     name: "@project.name@"
@@ -64,6 +66,8 @@ info:
 logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  level:
+    root: info
 management:
   endpoints:
     web:

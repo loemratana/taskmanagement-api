@@ -21,6 +21,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Component
@@ -28,6 +29,7 @@ import java.util.List;
 public class FirebaseNotificationSender implements NotificationSender {
 
     private final UserDeviceRepository userDeviceRepository;
+    private final Optional<FirebaseMessaging> firebaseMessaging;
 
     @Override
     public NotificationChannel getChannel() {
@@ -41,6 +43,9 @@ public class FirebaseNotificationSender implements NotificationSender {
             log.debug("No active devices for user {} — skipping PUSH", notification.getRecipientId());
             return;
         }
+
+        FirebaseMessaging messaging = firebaseMessaging.orElseThrow(() ->
+                new IllegalStateException("Firebase is not configured — push notifications are disabled"));
 
         List<String> tokens = devices.stream()
                 .map(UserDevice::getDeviceToken)
@@ -69,7 +74,7 @@ public class FirebaseNotificationSender implements NotificationSender {
                 .build();
 
         try {
-            BatchResponse response = FirebaseMessaging.getInstance().sendEachForMulticast(message);
+            BatchResponse response = messaging.sendEachForMulticast(message);
             handleResponse(response, devices);
         } catch (FirebaseMessagingException e) {
             log.error("Firebase multicast failed for notification {}", notification.getId(), e);

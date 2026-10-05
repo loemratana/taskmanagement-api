@@ -1,6 +1,8 @@
 package com.ratana.task_management_api.service;
 
 import com.ratana.task_management_api.dto.request.*;
+import com.ratana.task_management_api.dto.response.EmployeeHierarchyResponse;
+import com.ratana.task_management_api.dto.response.ManagerResponse;
 import com.ratana.task_management_api.dto.response.PageResponse;
 import com.ratana.task_management_api.dto.response.UserResponse;
 import org.springframework.data.domain.Page;
@@ -27,13 +29,17 @@ public interface UserService {
 
     void activate(UUID id);
 
-    UserResponse assignRoles(UUID id, AssignRolesRequest request);
+    UserResponse assignRole(UUID id, AssignRoleRequest request);
 
     UserResponse assignManager(UUID id, AssignManagerRequest request);
+
+    ManagerResponse getManager(UUID id);
 
     UserResponse assignOrg(UUID id, AssignOrgRequest request);
 
     void changePassword(UUID id, ChangePasswordRequest request);
 
     List<UserResponse> getDirectReports(UUID managerId);
+
+    EmployeeHierarchyResponse getHierarchy(UUID id);
 }

@@ -5,6 +5,7 @@ import com.ratana.task_management_api.enums.Priority;
 import com.ratana.task_management_api.enums.TaskStatus;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -75,6 +76,7 @@ public class Task {
             cascade=CascadeType.ALL,
             orphanRemoval=true
     )
+    @BatchSize(size = 25)
     @Builder.Default
     private List<TaskAssignment> assignments =
             new ArrayList<>();

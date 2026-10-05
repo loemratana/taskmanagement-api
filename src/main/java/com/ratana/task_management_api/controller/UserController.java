@@ -1,11 +1,15 @@
 package com.ratana.task_management_api.controller;
 
 
-import com.ratana.task_management_api.dto.request.AssignRolesRequest;
+import com.ratana.task_management_api.dto.request.AssignManagerRequest;
+import com.ratana.task_management_api.dto.request.AssignOrgRequest;
+import com.ratana.task_management_api.dto.request.AssignRoleRequest;
 import com.ratana.task_management_api.dto.request.UserCreateRequest;
 import com.ratana.task_management_api.dto.request.UserFilterRequest;
 import com.ratana.task_management_api.dto.request.UserUpdateRequest;
 import com.ratana.task_management_api.dto.response.ApiResponse;
+import com.ratana.task_management_api.dto.response.EmployeeHierarchyResponse;
+import com.ratana.task_management_api.dto.response.ManagerResponse;
 import com.ratana.task_management_api.dto.response.PageResponse;
 import com.ratana.task_management_api.dto.response.UserResponse;
 import com.ratana.task_management_api.enums.UserStatus;
@@ -55,7 +59,7 @@ public class UserController {
                     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "409", description = "Email already in use", content = @Content)
             }
     )
-    @PreAuthorize("hasAuthority('users:create')")
+    @PreAuthorize("hasAuthority(T(com.ratana.task_management_api.security.permission.Permissions).USERS_CREATE)")
     public ResponseEntity<ApiResponse<UserResponse>> createUser(@Valid @RequestBody UserCreateRequest request) {
 
         UserResponse created = userService.create(request);
@@ -67,7 +71,7 @@ public class UserController {
     @Operation(summary = "Search users", description = "All filter parameters are optional and combine with AND. " +
             "Supports standard Spring pagination/sort params, e.g. ?page=0&size=20&sort=fullName,asc")
     @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Page of matching users")
-    @PreAuthorize("hasAuthority('users:view')")
+    @PreAuthorize("hasAuthority(T(com.ratana.task_management_api.security.permission.Permissions).USERS_READ)")
     public ResponseEntity<ApiResponse<PageResponse<UserResponse>>> searchUsers(@ParameterObject @ModelAttribute UserFilterRequest fiter,@ParameterObject Pageable pageable)
 
     {
@@ -136,17 +140,80 @@ public class UserController {
     }
 
 
-    @PutMapping(value = "/{id}/roles", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Replace a user's roles", description = "Replaces the entire role set — not additive.")
+    @GetMapping("/{id}/manager")
+    @Operation(summary = "Get a user's manager", description = "Returns the user they directly report to, or null if they have no manager (top-level).")
     @ApiResponses({
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Roles updated"),
-            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "One or more role ids do not exist", content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Manager (or null)"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "User not found", content = @Content)
     })
-    public ResponseEntity<ApiResponse<UserResponse>> assignRoles(
+    public ResponseEntity<ApiResponse<ManagerResponse>> getManager(@Parameter(description = "User id", required = true) @PathVariable UUID id) {
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success(userService.getManager(id)));
+    }
+
+    @GetMapping("/{id}/reports")
+    @Operation(summary = "Get a user's direct reports", description = "Users whose manager_id points at this user. Not recursive — for the full downline, use the hierarchy endpoint.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Direct reports"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "User not found", content = @Content)
+    })
+    public ResponseEntity<ApiResponse<java.util.List<UserResponse>>> getDirectReports(@Parameter(description = "User id", required = true) @PathVariable UUID id) {
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success(userService.getDirectReports(id)));
+    }
+
+    @GetMapping("/{id}/hierarchy")
+    @Operation(summary = "Get an employee's position in the reporting hierarchy",
+            description = "Returns the employee's depth from the top of the org, their management chain (immediate manager " +
+                    "up to the root), and every employee under them at any depth — from recursive, single-round-trip queries.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Hierarchy info"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "User not found", content = @Content)
+    })
+    public ResponseEntity<ApiResponse<EmployeeHierarchyResponse>> getHierarchy(@Parameter(description = "User id", required = true) @PathVariable UUID id) {
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success(userService.getHierarchy(id)));
+    }
+
+    @PatchMapping(value = "/{id}/manager", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Assign or change a user's manager",
+            description = "Pass managerId: null to clear the manager (making the user top-level). Rejects self-assignment, " +
+                    "inactive managers, and assignments that would create a reporting cycle.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Manager assigned"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Invalid assignment (self, inactive manager, or would create a cycle)", content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "User or manager not found", content = @Content)
+    })
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
+    public ResponseEntity<ApiResponse<UserResponse>> assignManager(@Parameter(description = "User id", required = true) @PathVariable UUID id,
+                                                                     @RequestBody AssignManagerRequest request) {
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success(userService.assignManager(id, request)));
+    }
+
+    @PatchMapping(value = "/{id}/org", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Assign a user's department and/or position",
+            description = "Either field may be omitted to leave it unchanged; at least one must be provided. " +
+                    "Does not affect manager_id — use PATCH /{id}/manager for reporting-line changes.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Department/position assigned"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Neither departmentId nor positionId provided", content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "User, department, or position not found", content = @Content)
+    })
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
+    public ResponseEntity<ApiResponse<UserResponse>> assignOrg(@Parameter(description = "User id", required = true) @PathVariable UUID id,
+                                                                 @RequestBody AssignOrgRequest request) {
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success(userService.assignOrg(id, request)));
+    }
+
+
+    @PutMapping(value = "/{id}/role", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Replace a user's role", description = "Replaces the user's single role assignment.")
+    @ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Role updated"),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "Role id does not exist or is inactive", content = @Content),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "User not found", content = @Content)
+    })
+    public ResponseEntity<ApiResponse<UserResponse>> assignRole(
             @Parameter(description = "User id", required = true) @PathVariable UUID id,
-            @Valid @RequestBody AssignRolesRequest request) {
-        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success(userService.assignRoles(id, request)));
+            @Valid @RequestBody AssignRoleRequest request) {
+        return ResponseEntity.status(HttpStatus.OK).body(ApiResponse.success(userService.assignRole(id, request)));
     }
 
 

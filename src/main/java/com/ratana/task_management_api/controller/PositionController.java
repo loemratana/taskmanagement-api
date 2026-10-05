@@ -34,7 +34,7 @@ public class PositionController {
 
     @Operation(summary = "List all positions")
     @GetMapping
-    @PreAuthorize("hasAuthority('position:read')")
+    @PreAuthorize("hasAuthority(T(com.ratana.task_management_api.security.permission.Permissions).POSITIONS_READ)")
     public ResponseEntity<ApiResponse<List<PositionResponse>>> getAll() {
         return ResponseEntity.ok(ApiResponse.success(positionService.getAll()));
     }
@@ -56,7 +56,7 @@ public class PositionController {
 
 
     @Operation(summary = "Create a position", description = "Admin only.")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "201", description = "Position created"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Department not found"),
@@ -71,7 +71,7 @@ public class PositionController {
 
 
     @Operation(summary = "Update a position", description = "Admin only.")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Position updated"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Position or department not found"),
@@ -85,7 +85,7 @@ public class PositionController {
     }
 
     @Operation(summary = "Delete a position", description = "Admin only. Soft-deletes the position (deactivates it).")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole(T(com.ratana.task_management_api.security.role.Roles).ADMIN)")
     @ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "Position deleted"),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "404", description = "Position not found")

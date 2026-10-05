@@ -40,6 +40,11 @@ public class Permission {
     @Builder.Default
     private boolean active = true;
 
+    /** Permission that code references by name (e.g. in @PreAuthorize) — blocks rename/delete. */
+    @Column(name = "is_system_defined", nullable = false)
+    @Builder.Default
+    private boolean systemDefined = false;
+
     @CreationTimestamp
     @Column(updatable = false)
     private Instant createdAt;

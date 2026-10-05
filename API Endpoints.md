@@ -15,7 +15,7 @@
 
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|----------------|
-| GET | `/api/v1/users/me` | Returns the authenticated caller's own profile (`UserResponse`), resolved from the access token. The login response only contains tokens, so clients call this right after login to populate the session with id/name/roles/etc. | Yes |
+| GET | `/api/v1/users/me` | Returns the authenticated caller's own profile (`UserResponse`), resolved from the access token. The login response only contains tokens, so clients call this right after login to populate the session with id/name/role/etc. | Yes |
 
 ## Tasks (`/api/v1/tasks`)
 

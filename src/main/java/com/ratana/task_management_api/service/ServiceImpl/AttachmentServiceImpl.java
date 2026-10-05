@@ -5,6 +5,8 @@ import com.ratana.task_management_api.dto.response.AttachmentResponse;
 import com.ratana.task_management_api.dto.response.PageResponse;
 import com.ratana.task_management_api.exception.AttachmentNotFoundException;
 import com.ratana.task_management_api.exception.FileSizeExceededException;
+import com.ratana.task_management_api.exception.TaskNotFoundException;
+import com.ratana.task_management_api.exception.UnauthorizedTaskAccessException;
 import com.ratana.task_management_api.exception.UnsupportedFileTypeException;
 import com.ratana.task_management_api.mapper.AttachmentMapper;
 import com.ratana.task_management_api.model.Attachment;
@@ -19,6 +21,7 @@ import com.ratana.task_management_api.service.AttachmentService;
 import com.ratana.task_management_api.service.SupabaseStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,7 +47,7 @@ public class AttachmentServiceImpl implements AttachmentService {
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
     private final SupabaseStorageService storageService;
-//    private final AttachmentPermissionService permissionService;
+    private final TaskAuthorizationService taskAuthorizationService;
     private final AttachmentMapper mapper;
 
     @Override
@@ -52,10 +55,12 @@ public class AttachmentServiceImpl implements AttachmentService {
     public AttachmentResponse upload(UUID taskId, MultipartFile file) {
 
         UserPrincipal currentUser = SecurityUtils.getCurrentUser();
+        validateFile(file);
+
+        Task task = loadTask(taskId);
+        taskAuthorizationService.assertCanView(currentUser, task);
 
         String storageKey = buildStorageKey(taskId, file.getOriginalFilename());
-        Task task = loadTask(taskId);
-
 
         byte[] content;
         try {
@@ -93,15 +98,22 @@ public class AttachmentServiceImpl implements AttachmentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public PageResponse<AttachmentResponse> listForTask(UUID taskId, Pageable pageable) {
-        return null;
+        UserPrincipal currentUser = SecurityUtils.getCurrentUser();
+        Task task = loadTask(taskId);
+        taskAuthorizationService.assertCanView(currentUser, task);
+
+        Page<AttachmentResponse> page = attachmentRepository.findByTaskId(taskId, pageable)
+                .map(mapper::toResponse);
+        return PageResponse.from(page);
     }
 
     @Override
     public String download(UUID attachmentId) {
         UserPrincipal currentUser = SecurityUtils.getCurrentUser();
         Attachment attachment = loadAttachment(attachmentId);
-//        permissionService.assertCanViewAttachment(attachment, currentUser);
+        taskAuthorizationService.assertCanView(currentUser, attachment.getTask());
 
         log.info("Attachment {} download link issued to user {}", attachmentId, currentUser.getId());
         return storageService.createSignedUrl(attachment.getFileUrl(), DOWNLOAD_URL_TTL);
@@ -109,17 +121,30 @@ public class AttachmentServiceImpl implements AttachmentService {
     }
 
     @Override
+    @Transactional
     public void delete(UUID id) {
 
         UserPrincipal currentUser = SecurityUtils.getCurrentUser();
         Attachment attachment = loadAttachment(id);
-//        permissionService.assertCanDelete(attachment, currentUser);
+        assertCanDelete(currentUser, attachment);
 
         storageService.delete(attachment.getFileUrl());
         attachmentRepository.delete(attachment);
 
         log.info("Attachment {} deleted by user {}", id, currentUser.getId());
 
+    }
+
+    /** The uploader may remove their own file; otherwise the actor needs task-update rights. */
+    private void assertCanDelete(UserPrincipal actor, Attachment attachment) {
+        boolean isUploader = attachment.getUser() != null
+                && attachment.getUser().getId().equals(actor.getId());
+        if (isUploader) {
+            return;
+        }
+        if (!taskAuthorizationService.canUpdateTask(actor, attachment.getTask())) {
+            throw new UnauthorizedTaskAccessException("You do not have permission to delete this attachment.");
+        }
     }
 
     /** Builds a collision-resistant, path-traversal-safe storage key: {taskId}/{uuid}-{safeName} */
@@ -139,7 +164,8 @@ public class AttachmentServiceImpl implements AttachmentService {
     }
 
     private Task loadTask(UUID taskId) {
-        return null;
+        return taskRepository.findById(taskId)
+                .orElseThrow(() -> new TaskNotFoundException("Task not found: " + taskId));
     }
 
 

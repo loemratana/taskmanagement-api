@@ -16,6 +16,7 @@ public class RoleResponse {
     private String name;
     private String description;
     private boolean active;
+    private boolean systemDefined;
     List<PermissionSummary> permissions;
     private Instant created;
     private Instant updated;

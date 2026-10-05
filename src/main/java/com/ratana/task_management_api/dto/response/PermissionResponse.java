@@ -21,6 +21,7 @@ public class PermissionResponse {
     private String action;
     private String description;
     private boolean active;
+    private boolean systemDefined;
     private Instant createdAt;
     private Instant updatedAt;
 }

@@ -33,12 +33,15 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -102,6 +105,16 @@ public class TaskReminderServiceImpl implements TaskReminderService {
     public TaskReminderSetting getOrCreateSettings(Task task) {
         return settingRepository.findByTaskId(task.getId())
                 .orElseGet(() -> createDefaultSettings(task));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<UUID, TaskReminderSetting> findSettingsByTaskIds(Collection<UUID> taskIds) {
+        if (taskIds.isEmpty()) {
+            return Map.of();
+        }
+        return settingRepository.findAllByTaskIdIn(taskIds).stream()
+                .collect(Collectors.toMap(s -> s.getTask().getId(), Function.identity()));
     }
 
     private TaskReminderSetting createDefaultSettings(Task task) {

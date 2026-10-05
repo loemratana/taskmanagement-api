@@ -1,6 +1,7 @@
 package com.ratana.task_management_api.security;
 
 
+import com.ratana.task_management_api.security.role.Roles;
 import lombok.AllArgsConstructor;
 import org.apache.commons.lang3.text.translate.AggregateTranslator;
 import org.springframework.beans.factory.annotation.Value;
@@ -77,10 +78,10 @@ public class SecurityConfig {
                                 .requestMatchers(AUTH_WHITELIST).permitAll()
                                 // ===================== PROTECTED ENDPOINTS =====================
                                 // Admin endpoints
-                                .requestMatchers("/api/v1/admin/**").hasRole("ADMIN")
-                                .requestMatchers("/api/v1/positions/**").hasRole("ADMIN")
-                                .requestMatchers("/api/v1/permissions/**").hasRole("ADMIN")
-                                .requestMatchers("/api/v1/roles/**").hasRole("ADMIN")
+                                .requestMatchers("/api/v1/admin/**").hasRole(Roles.ADMIN)
+                                .requestMatchers("/api/v1/positions/**").hasRole(Roles.ADMIN)
+                                .requestMatchers("/api/v1/permissions/**").hasRole(Roles.ADMIN)
+                                .requestMatchers("/api/v1/roles/**").hasRole(Roles.ADMIN)
 
                                 // All other endpoints require authentication
                                 .anyRequest().authenticated()
