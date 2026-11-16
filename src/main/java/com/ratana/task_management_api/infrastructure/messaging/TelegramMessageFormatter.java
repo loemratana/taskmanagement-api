@@ -266,6 +266,7 @@ public class TelegramMessageFormatter {
                             .append("\">🔗 Join meeting</a>");
                 }
             }
+            default -> text.append("\n<b>Where:</b> ").append(escape(booking.locationLabel()));
         }
         if (location != null && StringUtils.hasText(location.getNote())) {
             text.append("\n<b>Note:</b> ").append(escape(location.getNote()));

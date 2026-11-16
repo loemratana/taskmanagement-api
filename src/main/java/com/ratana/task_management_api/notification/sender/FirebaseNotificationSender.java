@@ -10,6 +10,7 @@ import com.google.firebase.messaging.FirebaseMessagingException;
 import com.google.firebase.messaging.MessagingErrorCode;
 import com.google.firebase.messaging.MulticastMessage;
 import com.google.firebase.messaging.SendResponse;
+import com.ratana.task_management_api.infrastructure.firebase.FirebaseConfig;
 import com.ratana.task_management_api.notification.enums.NotificationChannel;
 import com.ratana.task_management_api.notification.enums.NotificationType;
 import com.ratana.task_management_api.notification.entity.Notification;
@@ -45,6 +46,11 @@ public class FirebaseNotificationSender implements NotificationSender {
 
     @Override
     public void send(Notification notification) {
+        if (!FirebaseConfig.isEnabled()) {
+            // No FIREBASE_CREDENTIALS (local dev, CI): push is off, as logged once at startup.
+            log.debug("Push disabled — skipping PUSH for notification {}", notification.getId());
+            return;
+        }
         List<UserDevice> devices = userDeviceRepository.findByUserIdAndActiveTrue(notification.getRecipientId());
         if (devices.isEmpty()) {
             log.debug("No active devices for user {} — skipping PUSH", notification.getRecipientId());

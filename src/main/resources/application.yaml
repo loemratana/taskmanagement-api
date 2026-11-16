@@ -126,7 +126,8 @@ app:
     # Daily push about tasks that became overdue overnight (assignee + one summary per manager). "-" = off.
     overdue-cron: ${TASK_OVERDUE_CRON:0 0 9 * * *}
 firebase:
-  credentials: ${FIREBASE_CREDENTIALS}
+  # Service-account JSON or its base64. Unset = push disabled (the app still starts).
+  credentials: ${FIREBASE_CREDENTIALS:}
 info:
   app:
     name: "@project.name@"

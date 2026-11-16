@@ -18,6 +18,37 @@ jobs:
     name: Build & Test
     runs-on: ubuntu-latest
 
+    # The startup and query tests run against a real PostgreSQL (Flyway migrates it from empty).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: tms
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tms"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Test-only settings: nothing here is a real secret. Firebase is left unset, so push is disabled.
+    env:
+      SPRING_PROFILES_ACTIVE: dev
+      DB_HOST: localhost
+      DB_PORT: 5432
+      POSTGRES_DB: tms
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      MINIO_ENDPOINT: http://localhost:9100
+      MINIO_PUBLIC_ENDPOINT: http://localhost:9100
+      MINIO_ROOT_USER: ci-minio
+      MINIO_ROOT_PASSWORD: ci-minio-password
+      TELEGRAM_BOT_TOKEN: ci-dummy-token
+      FIREBASE_CREDENTIALS: ""
+
     steps:
 
       - name: Checkout code
@@ -35,6 +66,23 @@ jobs:
       - name: Make gradlew executable
         run: chmod +x gradlew
 
+
+      # Object storage the app checks (and creates its bucket in) at startup. Started with `docker run`
+      # because service containers can't pass MinIO its "server /data" command.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9100:9000 \
+            -e MINIO_ROOT_USER="$MINIO_ROOT_USER" -e MINIO_ROOT_PASSWORD="$MINIO_ROOT_PASSWORD" \
+            pgsty/minio:latest server /data
+          for i in $(seq 1 30); do
+            curl -fsS http://localhost:9100/minio/health/ready && exit 0
+            sleep 2
+          done
+          echo "MinIO did not become ready" && docker logs minio && exit 1
+
+      # A fresh random JWT secret per run: real enough for the app to start, useless outside CI.
+      - name: Generate test JWT secret
+        run: echo "JWT_SECRET=$(openssl rand -base64 48)" >> "$GITHUB_ENV"
 
       - name: Build and test
         run: ./gradlew clean build --no-daemon
