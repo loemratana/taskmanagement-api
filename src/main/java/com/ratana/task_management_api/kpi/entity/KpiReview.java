@@ -1,0 +1,30 @@
+package com.ratana.task_management_api.kpi.entity;
+
+import com.ratana.task_management_api.common.entity.BaseEntity;
+import com.ratana.task_management_api.user.entity.User;
+
+
+import com.ratana.task_management_api.kpi.enums.ReviewStatus;
+import jakarta.persistence.*;
+
+//@Entity
+//@Table(name = "kpi_templates")
+public class KpiReview  extends BaseEntity{
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "user_id")
+    private User user;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "template_id")
+    private KpiTemplate template;
+
+    private String reviewPeriod;
+    private Double selfScore;
+    private Double managerScore;
+    private Double finalScore;
+
+    @Enumerated(EnumType.STRING)
+    private ReviewStatus status = ReviewStatus.DRAFT;
+
+    private String managerComment;
+}

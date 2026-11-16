@@ -2,22 +2,39 @@
 spring:
   application:
     name: task-management-api
+  config:
+    # Load local .env (same file docker-compose uses) so DB creds etc. stay in sync.
+    # Real environment variables still take precedence.
+    import: optional:file:.env[.properties]
   profiles:
     default: dev
   datasource:
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${POSTGRES_DB:tms}
-    username: ${POSTGRES_USER}
-    password: ${POSTGRES_PASSWORD}
+    # DB_URL / DB_USERNAME / DB_PASSWORD point the API at any database (e.g. Neon in the cloud).
+    # Unset, it uses the local docker-compose Postgres built from DB_HOST / DB_PORT / POSTGRES_*.
+    url: ${DB_URL:jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${POSTGRES_DB:tms}}
+    username: ${DB_USERNAME:${POSTGRES_USER:RATANA}}
+    password: ${DB_PASSWORD:${POSTGRES_PASSWORD:changeme}}
+    hikari:
+      # A cloud database can be a network hop away (and Neon may be waking from idle): allow time to connect.
+      connection-timeout: ${DB_CONNECT_TIMEOUT_MS:30000}
+      maximum-pool-size: ${DB_POOL_SIZE:10}
 
   jpa:
     open-in-view: false
 
+  data:
+    web:
+      pageable:
+        # Spring's default cap is 2000. The admin task export asks for 1000; nothing needs more.
+        max-page-size: ${API_MAX_PAGE_SIZE:1000}
+
   flyway:
-    enabled: true
+    enabled: ${FLYWAY_ENABLED:true}
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 10MB
+      # One uploaded file / a whole request (all files of a submission together).
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:20MB}
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:100MB}
 
   mail:
     host: ${SMTP_HOST:localhost}
@@ -30,6 +47,10 @@ spring:
           auth: ${SMTP_AUTH:false}
           starttls:
             enable: ${SMTP_STARTTLS:false}
+          # Milliseconds. Without these a stuck mail server can hold a sending thread forever.
+          connectiontimeout: ${SMTP_TIMEOUT_MS:10000}
+          timeout: ${SMTP_TIMEOUT_MS:10000}
+          writetimeout: ${SMTP_TIMEOUT_MS:10000}
 app:
   client-base-url: ${CLIENT_BASE_URL:http://localhost:5173}
   cors:
@@ -37,23 +58,73 @@ app:
   jwt:
     # Required — generate per environment, e.g.: openssl rand -base64 48
     secret: ${JWT_SECRET}
-    # Token expires after 24 hours
-    refresh-token-expiration-ms: ${JWT_EXPIRE:28800000}
-    access-token-expiration-ms: ${JWT_ACCESS_TOKEN_EXPIRATION:604800000}
+    # Short-lived access token: revoking sessions (logout-all, password change) only stops
+    # refreshes, so this is how long an already signed-in device keeps working. Default 15 min.
+    access-token-expiration-ms: ${JWT_ACCESS_TOKEN_EXPIRATION:900000}
+    # Refresh token rotates on every use, so active users stay signed in; idle for longer
+    # than this and they sign in again. Default 7 days.
+    refresh-token-expiration-ms: ${JWT_EXPIRE:604800000}
   notification:
-    websocket:
-      user-destination-prefix: /user
-      broker-relay: false   # set true if using external broker (RabbitMQ/Redis)
     email:
       enabled: ${NOTIFICATION_EMAIL_ENABLED:false}
     retry:
-      max-attempts: ${NOTIFICATION_RETRY_MAX_ATTEMPTS:5}
+      # Total tries per delivery, the first send included: 1 + one per back-off step below.
+      max-attempts: ${NOTIFICATION_RETRY_MAX_ATTEMPTS:6}
+      # How often the retry job looks for work.
       interval-ms: ${NOTIFICATION_RETRY_INTERVAL_MS:60000}
+      # Wait before each retry (minutes); the last value repeats. Default rides out about an hour of outage.
+      backoff-minutes: ${NOTIFICATION_RETRY_BACKOFF_MINUTES:1,2,5,15,30}
+      # A delivery still unsent this long after creation lost its in-memory dispatch (restart/crash): resend it.
+      stuck-after-minutes: ${NOTIFICATION_STUCK_AFTER_MINUTES:10}
+      # Most deliveries handled per run, so a backlog can't monopolise the scheduler.
+      batch-size: ${NOTIFICATION_RETRY_BATCH_SIZE:100}
+  booking:
+    zone: ${BOOKING_TIMEZONE:${TZ:Asia/Phnom_Penh}}
+    workday-start: ${BOOKING_WORKDAY_START:07:00}
+    workday-end: ${BOOKING_WORKDAY_END:18:00}
+    slot-minutes: ${BOOKING_SLOT_MINUTES:15}
+    min-duration-minutes: ${BOOKING_MIN_DURATION_MINUTES:15}
+    max-duration-minutes: ${BOOKING_MAX_DURATION_MINUTES:240}
+    max-advance-days: ${BOOKING_MAX_ADVANCE_DAYS:60}
+    max-images-per-room: ${BOOKING_MAX_IMAGES_PER_ROOM:10}
+    max-image-size-bytes: ${BOOKING_MAX_IMAGE_SIZE_BYTES:5242880}
+    check-in-opens-minutes: ${BOOKING_CHECKIN_OPENS_MINUTES:10}
+    late-after-minutes: ${BOOKING_LATE_AFTER_MINUTES:10}
+    absent-after-end-minutes: ${BOOKING_ABSENT_AFTER_END_MINUTES:15}
+    check-in-code-seconds: ${BOOKING_CHECKIN_CODE_SECONDS:30}
+    mark-window-days: ${BOOKING_MARK_WINDOW_DAYS:7}
+    # Signs the rotating check-in QR codes. Defaults to the JWT secret.
+    check-in-secret: ${BOOKING_CHECKIN_SECRET:${JWT_SECRET}}
+    attendance-check-interval-ms: ${BOOKING_ATTENDANCE_CHECK_INTERVAL_MS:300000}
+  performance:
+    # Top performers / star rating (GET /api/v1/performance/leaderboard). Weights are relative.
+    on-time-weight: ${PERFORMANCE_ON_TIME_WEIGHT:30}
+    quality-weight: ${PERFORMANCE_QUALITY_WEIGHT:25}
+    completion-weight: ${PERFORMANCE_COMPLETION_WEIGHT:20}
+    overdue-weight: ${PERFORMANCE_OVERDUE_WEIGHT:15}
+    speed-weight: ${PERFORMANCE_SPEED_WEIGHT:10}
+    # Quality points lost per rejected submission on a task.
+    rejection-penalty: ${PERFORMANCE_REJECTION_PENALTY:25}
+    # 0 = a late submission counts as late even with a reason; 0.5 = half credit; 1 = as if on time.
+    late-with-reason-credit: ${PERFORMANCE_LATE_WITH_REASON_CREDIT:0}
+    count-collaborators: ${PERFORMANCE_COUNT_COLLABORATORS:true}
+    min-tasks-for-rating: ${PERFORMANCE_MIN_TASKS_FOR_RATING:3}
+    # Scores from few tasks are pulled toward the baseline, as if there were 5 extra tasks scoring 70.
+    fairness-tasks: ${PERFORMANCE_FAIRNESS_TASKS:5}
+    fairness-baseline: ${PERFORMANCE_FAIRNESS_BASELINE:70}
+    zone: ${PERFORMANCE_TIMEZONE:${TZ:Asia/Phnom_Penh}}
+    awards:
+      # Top-performer popups, at 09:00 in the zone above (sec min hour day month weekday). "-" turns one off.
+      # Monthly: the 1st, for last month. Yearly: 2 January (1 January is a public holiday), for last year.
+      monthly-cron: ${PERFORMANCE_AWARD_MONTHLY_CRON:0 0 9 1 * *}
+      yearly-cron: ${PERFORMANCE_AWARD_YEARLY_CRON:0 0 9 2 1 *}
   reminder:
     check-interval-ms: ${TASK_REMINDER_CHECK_INTERVAL_MS:60000}
     window-minutes: ${TASK_REMINDER_WINDOW_MINUTES:5}
-    default-timezone: ${TASK_REMINDER_DEFAULT_TIMEZONE:Asia/Phnom_Penh}
+    default-timezone: ${TASK_REMINDER_DEFAULT_TIMEZONE:${TZ:Asia/Phnom_Penh}}
     default-times: "${TASK_REMINDER_DEFAULT_TIMES:09:00,13:00,17:00}"
+    # Daily push about tasks that became overdue overnight (assignee + one summary per manager). "-" = off.
+    overdue-cron: ${TASK_OVERDUE_CRON:0 0 9 * * *}
 firebase:
   credentials: ${FIREBASE_CREDENTIALS}
 info:
@@ -64,15 +135,23 @@ info:
 logging:
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  level:
+    root: ${LOG_LEVEL_ROOT:info}
+    # TRACE only in the dev profile (application-dev.yaml).
+    com.ratana.task_management_api: ${APP_LOG_LEVEL:info}
 management:
   endpoints:
     web:
       base-path: /management
       exposure:
-        include: health,info,metrics,prometheus
+        # health/info are public (SecurityConfig); metrics is ADMIN-only.
+        include: ${MANAGEMENT_ENDPOINTS:health,info,metrics}
   endpoint:
     health:
-      show-details: when-authorized
+      show-details: ${MANAGEMENT_HEALTH_DETAILS:when-authorized}
+      # /management/health/liveness and /readiness for Docker / Kubernetes probes.
+      probes:
+        enabled: true
   info:
     env:
       enabled: true
@@ -83,17 +162,23 @@ notification:
     api-base-url: ${TELEGRAM_API_BASE_URL:https://api.telegram.org}
     connect-timeout-ms: ${TELEGRAM_CONNECT_TIMEOUT_MS:3000}
     read-timeout-ms: ${TELEGRAM_READ_TIMEOUT_MS:5000}
-cloudinary:
-  cloud-name: ${CLOUDINARY_CLOUD_NAME}
-  api-key: ${CLOUDINARY_API_KEY}
-  api-secret: ${CLOUDINARY_API_SECRET}
-
-supabase:
-  url: ${SUPABASE_URL}
-  service-key: ${SUPABASE_SERVICE_KEY}
-  bucket: ${SUPABASE_BUCKET:taskmanagement}
+    upload-read-timeout-ms: ${TELEGRAM_UPLOAD_READ_TIMEOUT_MS:60000}
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9100}
+  public-endpoint: ${MINIO_PUBLIC_ENDPOINT:http://localhost:9100}
+  access-key: ${MINIO_ROOT_USER}
+  secret-key: ${MINIO_ROOT_PASSWORD}
+  bucket: ${MINIO_BUCKET:taskmanagement}
+  region: ${MINIO_REGION:us-east-1}
 
 server:
   port: ${SERVER_PORT:8080}
-  servlet:
-    shutdown: graceful
+  # Finish in-flight requests before stopping (was under server.servlet, where Spring ignores it).
+  shutdown: ${SERVER_SHUTDOWN:graceful}
+springdoc:
+  # On for local dev; the docker and prod profiles default it to false.
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:true}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:true}
+    filter: true

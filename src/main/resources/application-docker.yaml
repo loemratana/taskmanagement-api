@@ -1,0 +1,34 @@
+# Profile used by docker-compose.yml (SPRING_PROFILES_ACTIVE=docker).
+# Without this file the container ran on application.yaml defaults: TRACE logging and public Swagger.
+# Hosts and ports for the other containers come from docker-compose.yml.
+
+spring:
+  jpa:
+    hibernate:
+      # Flyway owns the schema.
+      ddl-auto: ${JPA_DDL_AUTO:validate}
+    properties:
+      hibernate:
+        format_sql: false
+        show_sql: false
+
+logging:
+  level:
+    root: info
+    com.ratana.task_management_api: ${APP_LOG_LEVEL:info}
+    org.springframework.web: warn
+    org.springframework.security: warn
+
+springdoc:
+  api-docs:
+    enabled: ${SWAGGER_ENABLED:false}
+  swagger-ui:
+    enabled: ${SWAGGER_ENABLED:false}
+  show-actuator: false
+
+# Behind a reverse proxy / load balancer, take the client IP from X-Forwarded-For so per-IP
+# login limits count real clients, not the proxy. Tomcat only honours the header when the direct
+# peer is a trusted proxy (private/loopback ranges by default), so clients can't spoof it.
+server:
+  # To trust only specific proxies, set SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES to a regex of their IPs.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:native}

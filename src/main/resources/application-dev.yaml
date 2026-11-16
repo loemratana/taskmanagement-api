@@ -4,11 +4,14 @@
 
 spring:
   datasource:
-    username: ${POSTGRES_USER:RATANA}
-    password: ${POSTGRES_PASSWORD:admin123}
+    # Same precedence as application.yaml: DB_USERNAME / DB_PASSWORD (e.g. Neon) win over the local POSTGRES_*.
+    username: ${DB_USERNAME:${POSTGRES_USER:RATANA}}
+    password: ${DB_PASSWORD:${POSTGRES_PASSWORD:admin123}}
   jpa:
     hibernate:
-      ddl-auto: update
+      # Same as prod: Flyway owns the schema. "update" could silently add columns in dev that
+      # have no migration, which prod's "validate" would then reject. A missing migration now fails here first.
+      ddl-auto: ${JPA_DDL_AUTO:validate}
     properties:
       hibernate:
         format_sql: true
@@ -19,13 +22,6 @@ app:
     # Dev-only fallback so a fresh checkout can boot without a .env file.
     # Never reuse this value outside local development.
     secret: ${JWT_SECRET:ZGV2LW9ubHktaW5zZWN1cmUtc2VjcmV0LWRvLW5vdC11c2UtaW4tcHJvZC1lbnZzIQ==}
-
-cloudinary:
-  # Shared dev/test account fallback — already exposed in prior source history,
-  # treat as compromised and rotate before relying on it for anything real.
-  cloud-name: ${CLOUDINARY_CLOUD_NAME:uwzbov1x}
-  api-key: ${CLOUDINARY_API_KEY:272238923929533}
-  api-secret: ${CLOUDINARY_API_SECRET:Rzka5aSYL201d2DPeSJmhWo7tzQ}
 
 logging:
   level:

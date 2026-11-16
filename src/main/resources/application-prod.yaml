@@ -27,3 +27,10 @@ springdoc:
   swagger-ui:
     enabled: ${SWAGGER_ENABLED:false}
   show-actuator: false
+
+# Behind a reverse proxy / load balancer, take the client IP from X-Forwarded-For so per-IP
+# login limits count real clients, not the proxy. Tomcat only honours the header when the direct
+# peer is a trusted proxy (private/loopback ranges by default), so clients can't spoof it.
+server:
+  # To trust only specific proxies, set SERVER_TOMCAT_REMOTEIP_INTERNALPROXIES to a regex of their IPs.
+  forward-headers-strategy: ${FORWARD_HEADERS_STRATEGY:native}

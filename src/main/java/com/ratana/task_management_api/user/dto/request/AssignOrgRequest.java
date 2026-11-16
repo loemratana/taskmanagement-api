@@ -1,0 +1,17 @@
+package com.ratana.task_management_api.user.dto.request;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.util.UUID;
+
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class AssignOrgRequest {
+
+    private UUID departmentId;
+    private UUID positionId;
+}

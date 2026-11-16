@@ -1,8 +1,24 @@
+# Secrets: never send them to the Docker build (the image gets its settings from the environment).
+.env
+.env.*
+
+# Build output and caches (the image builds its own).
 .gradle
 build
 out
+bin
+
+# Editors, VCS, CI, docs: not needed to build the app.
 .idea
 .vscode
+.claude
 .git
+.github
 .gitignore
-README.md
+.gitattributes
+docs
+*.md
+gradlew.bat
+docker-compose*.yml
+Dockerfile
+.dockerignore

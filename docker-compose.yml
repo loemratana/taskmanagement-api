@@ -13,13 +13,26 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      minio:
+        condition: service_healthy
+    healthcheck:
+      # Readiness = app started and its database connection works.
+      test: [ "CMD", "curl", "-fsS", "http://localhost:8080/management/health/readiness" ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
 #      redis:
 #        condition: service_started
 
     environment:
       SPRING_PROFILES_ACTIVE: docker
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
+      # Inside Docker, reach other containers by service name, not localhost.
+      DB_HOST: postgres
+      DB_PORT: 5432
+
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_PUBLIC_ENDPOINT: http://localhost:${MINIO_API_PORT:-9100}
 
       POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
@@ -29,7 +42,9 @@ services:
 #      REDIS_PORT: ${REDIS_PORT}
 
       JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRE: ${JWT_EXPIRE}
+      # ":-" defaults: an unset variable would otherwise reach Spring as "" and fail to parse.
+      JWT_EXPIRE: ${JWT_EXPIRE:-604800000}
+      JWT_ACCESS_TOKEN_EXPIRATION: ${JWT_ACCESS_TOKEN_EXPIRATION:-900000}
 
 #  redis:
 #    image: redis:8
@@ -88,8 +103,30 @@ services:
 
     volumes:
       - pgadmin_data:/var/lib/pgadmin
+  minio:
+    image: pgsty/minio:latest   # community build; minio/minio was removed from Docker Hub
+    container_name: tms-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    env_file:
+      - .env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      TZ: ${TZ}
+    ports:
+      - "${MINIO_API_PORT:-9100}:9000"       # S3 API
+      - "${MINIO_CONSOLE_PORT:-9101}:9001"   # Web console
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: [ "CMD", "mc", "ready", "local" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 volumes:
   postgres_data:
   redis_data:
   pgadmin_data:
+  minio_data:
 
