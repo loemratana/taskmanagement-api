@@ -14,7 +14,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.EnumMap;
@@ -23,7 +22,12 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Single channel fan-out path. Retry scheduler reuses {@link #retry(NotificationDelivery)}.
+ * Single channel fan-out path. The retry scheduler reuses {@link #retryById(UUID)}.
+ * <p>
+ * No transaction wraps a send. Email, Telegram and FCM calls can take seconds, and a transaction
+ * open around them would hold a pooled DB connection the whole time, so a slow provider could
+ * starve API requests of connections. Instead every read and every status write is its own short
+ * repository call, and the network call happens between them with no connection held.
  */
 @Slf4j
 @Service
@@ -61,7 +65,6 @@ public class NotificationDispatcher {
     }
 
     @Async("notificationExecutor")
-    @Transactional
     public void dispatch(Notification notification) {
         List<NotificationDelivery> deliveries = deliveryRepository.findByNotificationId(notification.getId());
         log.debug("Dispatching notification {} over {} delivery(ies)", notification.getId(), deliveries.size());
@@ -78,18 +81,18 @@ public class NotificationDispatcher {
             }
         }
 
-        notification.setStatus(anySuccess ? NotificationStatus.SENT : NotificationStatus.FAILED);
-        notificationRepository.save(notification);
-        log.info("Notification {} dispatched: status={}", notification.getId(), notification.getStatus());
+        NotificationStatus status = anySuccess ? NotificationStatus.SENT : NotificationStatus.FAILED;
+        updateStatus(notification, status);
+        log.info("Notification {} dispatched: status={}", notification.getId(), status);
     }
 
     /**
-     * Retries one failed delivery, or sends one whose first dispatch was lost (still PENDING), in its own
-     * transaction: re-read fresh, so it never acts on a stale copy. Returns true if the send succeeded.
+     * Retries one failed delivery, or sends one whose first dispatch was lost (still PENDING). Re-reads
+     * it fresh, so it never acts on a stale copy, and like {@link #dispatch} holds no transaction while
+     * sending. Returns true if the send succeeded.
      */
-    @Transactional
     public boolean retryById(UUID deliveryId) {
-        NotificationDelivery delivery = deliveryRepository.findById(deliveryId).orElse(null);
+        NotificationDelivery delivery = deliveryRepository.findWithNotificationById(deliveryId).orElse(null);
         if (delivery == null) {
             return false;
         }
@@ -113,13 +116,17 @@ public class NotificationDispatcher {
         boolean sent = attemptSend(delivery, notification);
         // Keep the notification's overall status in step: delivered once any channel got through.
         if (sent && notification.getStatus() != NotificationStatus.SENT) {
-            notification.setStatus(NotificationStatus.SENT);
-            notificationRepository.save(notification);
+            updateStatus(notification, NotificationStatus.SENT);
         } else if (!sent && notification.getStatus() == NotificationStatus.PENDING) {
-            notification.setStatus(NotificationStatus.FAILED);
-            notificationRepository.save(notification);
+            updateStatus(notification, NotificationStatus.FAILED);
         }
         return sent;
+    }
+
+    /** Targeted update, not save(): merging this detached copy could undo a read the user made meanwhile. */
+    private void updateStatus(Notification notification, NotificationStatus status) {
+        notificationRepository.updateStatus(notification.getId(), status, Instant.now());
+        notification.setStatus(status);
     }
 
     private boolean attemptSend(NotificationDelivery delivery, Notification notification) {
@@ -133,7 +140,7 @@ public class NotificationDispatcher {
         }
 
         try {
-            sender.send(notification);
+            sender.send(notification); // network call: no transaction or connection held here
             markSent(delivery);
             log.debug("Notification {} delivered via {} (attempt {})",
                     notification.getId(), delivery.getChannel(), delivery.getAttempts());

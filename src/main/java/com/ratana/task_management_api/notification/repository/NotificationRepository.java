@@ -1,6 +1,7 @@
 package com.ratana.task_management_api.notification.repository;
 
 import com.ratana.task_management_api.notification.entity.Notification;
+import com.ratana.task_management_api.notification.enums.NotificationStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -8,7 +9,9 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,6 +40,15 @@ public interface NotificationRepository extends JpaRepository<Notification, UUID
     int markAllAsRead(@Param("recipientId") UUID recipientId);
 
     boolean existsByIdAndRecipientId(UUID id, UUID recipientId);
+
+    /**
+     * Sets only the delivery status, in its own short transaction. Used by the dispatcher instead of
+     * save(), so a status update can never overwrite a read flag the user set in the meantime.
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE Notification n SET n.status = :status, n.updatedAt = :now WHERE n.id = :id")
+    int updateStatus(@Param("id") UUID id, @Param("status") NotificationStatus status, @Param("now") Instant now);
 
     Page<Notification> findByRecipientIdOrderByCreatedAtDesc(UUID recipientId, Pageable pageable);
 }

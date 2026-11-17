@@ -20,10 +20,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Propagation;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -51,15 +50,35 @@ public class MeetingBookingNotifier {
     private final TelegramBotClient telegramBotClient;
     private final TelegramMessageFormatter messageFormatter;
 
-    /** REQUIRES_NEW: NotificationService.send registers an after-commit hook that needs a live transaction. */
+    /** Boot's TransactionTemplate; wraps only the database part of {@link #handle}. */
+    private final TransactionOperations transactions;
+
+    /** One department group to post the meeting alert to. Plain values, usable with no transaction open. */
+    private record GroupTarget(UUID groupId, UUID departmentId, String chatId) {}
+
+    /** The Telegram announcement to post once the transaction has closed. */
+    private record GroupAlert(UUID bookingId, boolean cancelled, String text, List<GroupTarget> targets) {}
+
+    /**
+     * Two steps, so no DB connection is held during Telegram calls: a short transaction loads the
+     * booking, saves the personal notifications (NotificationService.send needs a live transaction for
+     * its after-commit dispatch hook) and prepares the group alert; the alert is then posted with none open.
+     */
     @Async("notificationExecutor")
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handle(MeetingBookingEvent event) {
+        GroupAlert alert = transactions.execute(status -> notifyAttendees(event));
+        if (alert != null) {
+            postGroupAlert(alert);
+        }
+    }
+
+    /** Returns the group alert to post, or null when there's none. */
+    private GroupAlert notifyAttendees(MeetingBookingEvent event) {
         MeetingBooking booking = bookingRepository.findWithDetailsById(event.bookingId()).orElse(null);
         if (booking == null) {
             log.info("Skipping meeting notifications: booking {} no longer exists", event.bookingId());
-            return;
+            return null;
         }
         UUID senderId = event.actorId() != null ? event.actorId() : booking.getOrganizer().getId();
         String when = "%s %s-%s".formatted(timePolicy.localDate(booking.getStartAt()),
@@ -96,47 +115,60 @@ public class MeetingBookingNotifier {
         }
         log.info("Meeting {} sent {} notification(s)", booking.getId(), sent);
 
-        if (event.groupAlert() != null) {
-            alertDepartmentGroups(booking, event.groupAlert() == NotificationType.MEETING_CANCELLED, when);
+        if (event.groupAlert() == null) {
+            return null;
+        }
+        try {
+            return prepareGroupAlert(booking, event.groupAlert() == NotificationType.MEETING_CANCELLED, when);
+        } catch (RuntimeException e) {
+            // Never let the group alert roll back the attendees' notifications saved above.
+            log.warn("Meeting {} group alert skipped: {}", booking.getId(), e.getMessage());
+            return null;
         }
     }
 
-    /** Best effort: one group failing never stops the others or the personal notifications. */
-    private void alertDepartmentGroups(MeetingBooking booking, boolean cancelled, String when) {
+    /** Resolves each targeted department's active group and builds the text; null when no group to post to. */
+    private GroupAlert prepareGroupAlert(MeetingBooking booking, boolean cancelled, String when) {
         Map<UUID, Department> departments = new LinkedHashMap<>();
         booking.getTargetDepartments().forEach(d -> departments.put(d.getId(), d));
         booking.getTargetPositions().stream()
                 .map(Position::getDepartment)
                 .filter(Objects::nonNull)
                 .forEach(d -> departments.putIfAbsent(d.getId(), d));
-        if (departments.isEmpty()) {
-            return;
-        }
 
-        String text = messageFormatter.forMeeting(booking, cancelled, when, audience(booking));
-        int posted = 0;
+        List<GroupTarget> targets = new ArrayList<>();
         for (Department department : departments.values()) {
-            DepartmentTelegramGroup group = groupService.resolveActive(department.getId()).orElse(null);
-            if (group == null) {
-                continue;
-            }
+            groupService.resolveActive(department.getId()).ifPresent((DepartmentTelegramGroup group) ->
+                    targets.add(new GroupTarget(group.getId(), department.getId(), group.getChatId())));
+        }
+        if (targets.isEmpty()) {
+            return null;
+        }
+        String text = messageFormatter.forMeeting(booking, cancelled, when, audience(booking));
+        return new GroupAlert(booking.getId(), cancelled, text, targets);
+    }
+
+    /** Best effort, no transaction open: one group failing never stops the others. */
+    private void postGroupAlert(GroupAlert alert) {
+        int posted = 0;
+        for (GroupTarget target : alert.targets()) {
             try {
-                telegramBotClient.sendMessage(group.getChatId(), text);
+                telegramBotClient.sendMessage(target.chatId(), alert.text());
                 posted++;
             } catch (TelegramApiException e) {
                 log.warn("Meeting {} Telegram alert to group {} (department {}) failed: {}",
-                        booking.getId(), group.getId(), department.getId(), e.getMessage());
+                        alert.bookingId(), target.groupId(), target.departmentId(), e.getMessage());
                 if (!e.isRetryable()) {
                     // Bot kicked or chat deleted: stop routing to it, same as task alerts do.
-                    groupService.deactivate(group.getId());
+                    groupService.deactivate(target.groupId());
                 }
             } catch (RuntimeException e) {
                 log.warn("Meeting {} Telegram alert to group {} (department {}) failed: {}",
-                        booking.getId(), group.getId(), department.getId(), e.getMessage());
+                        alert.bookingId(), target.groupId(), target.departmentId(), e.getMessage());
             }
         }
-        log.info("Meeting {} {} alert posted to {} department group(s)", booking.getId(),
-                cancelled ? "cancellation" : "invitation", posted);
+        log.info("Meeting {} {} alert posted to {} department group(s)", alert.bookingId(),
+                alert.cancelled() ? "cancellation" : "invitation", posted);
     }
 
     /** "IT, HR / Manager, Dara Sok" — what the organizer selected. */

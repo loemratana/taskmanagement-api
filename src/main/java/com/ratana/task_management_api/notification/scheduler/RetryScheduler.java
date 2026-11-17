@@ -25,8 +25,8 @@ import java.util.UUID;
  *       restart, crash or full queue. Sent now.</li>
  *   <li><b>Failed</b>: retried with a growing wait ({@link DeliveryRetryPolicy}), then dead-lettered.</li>
  * </ul>
- * Each retry runs in its own transaction (NotificationDispatcher#retryById), so one bad delivery
- * can't roll back the others or hold a long transaction open; a batch limit keeps a backlog from
+ * Each retry is independent (NotificationDispatcher#retryById), so one bad delivery can't affect
+ * the others, and no transaction is held open while it sends; a batch limit keeps a backlog from
  * monopolising the scheduler thread the reminders also use.
  */
 @Component

@@ -16,11 +16,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -49,13 +49,16 @@ class TelegramGroupNotificationSenderTest {
     @Mock private DepartmentTelegramGroupService groupService;
     @Mock private TelegramMessageFormatter formatter;
     @Mock private TelegramBotClient client;
-    @InjectMocks private TelegramGroupNotificationSender sender;
+    private TelegramGroupNotificationSender sender;
 
     private Task task;
     private TaskSubmission submission;
 
     @BeforeEach
     void setUp() {
+        sender = new TelegramGroupNotificationSender(taskRepository, submissionRepository, storageService,
+                groupService, formatter, client, TransactionOperations.withoutTransaction());
+
         Department department = new Department();
         department.setId(UUID.randomUUID());
         task = Task.builder().id(UUID.randomUUID()).title("Fix printer").department(department).build();

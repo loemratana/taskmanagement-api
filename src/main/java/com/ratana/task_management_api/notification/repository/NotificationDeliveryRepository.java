@@ -4,6 +4,7 @@ import com.ratana.task_management_api.notification.enums.DeliveryStatus;
 import com.ratana.task_management_api.notification.enums.NotificationChannel;
 import com.ratana.task_management_api.notification.entity.NotificationDelivery;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -19,6 +20,10 @@ import java.util.UUID;
 public interface NotificationDeliveryRepository extends JpaRepository<NotificationDelivery, UUID> {
 
     List<NotificationDelivery> findByNotificationId(UUID notificationId);
+
+    /** The delivery with its notification loaded, so the retry path can use both without an open transaction. */
+    @EntityGraph(attributePaths = "notification")
+    Optional<NotificationDelivery> findWithNotificationById(UUID id);
     List<NotificationDelivery> findByStatus(DeliveryStatus status);
 
     Optional<NotificationDelivery> findByNotificationIdAndChannel(UUID notificationId, NotificationChannel channel);

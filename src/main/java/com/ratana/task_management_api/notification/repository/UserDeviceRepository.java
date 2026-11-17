@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -18,6 +19,8 @@ public interface UserDeviceRepository extends JpaRepository<UserDevice, UUID> {
     Optional<UserDevice> findByUserIdAndDeviceToken(UUID userId, String deviceToken);
     Optional<UserDevice> findByDeviceToken(String deviceToken);
     Optional<UserDevice> findByIdAndUserId(UUID id, UUID userId);
+    /** Own transaction: called by the push sender, which runs outside one. */
+    @Transactional
     @Modifying
     @Query("UPDATE UserDevice d SET d.active = false WHERE d.deviceToken = :token")
     int deactivateByToken(String token);

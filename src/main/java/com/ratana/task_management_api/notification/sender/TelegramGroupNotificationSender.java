@@ -20,6 +20,7 @@ import com.ratana.task_management_api.infrastructure.messaging.TelegramMessageFo
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -55,16 +56,38 @@ public class TelegramGroupNotificationSender implements NotificationSender {
     private final DepartmentTelegramGroupService groupService;
     private final TelegramMessageFormatter messageFormatter;
     private final TelegramBotClient telegramBotClient;
+    /** Boot's TransactionTemplate; wraps only the short read in {@link #prepare}. */
+    private final TransactionOperations transactions;
 
     private record LoadedFiles(List<TelegramFile> photos, List<TelegramFile> documents) {}
+
+    /** What to post, decided from the database. */
+    private enum Kind { ASSIGNMENT, SUBMISSION, REVIEW }
+
+    /** A submission file to forward: metadata only, the bytes are downloaded outside the transaction. */
+    private record FileRef(String name, String contentType, String storageKey, boolean photo) {}
+
+    /** Everything needed to post, built inside a short read-only transaction; plain values, no entities. */
+    private record Post(Kind kind, UUID taskId, UUID submissionId, UUID groupId, UUID departmentId,
+                        String chatId, String text, Long replyTo, List<FileRef> files) {}
 
     @Override
     public NotificationChannel getChannel() {
         return NotificationChannel.TELEGRAM_GROUP;
     }
 
+    /**
+     * Two steps, so no DB connection is held during Telegram or storage I/O: {@link #prepare} reads
+     * the task, submission and group (lazy associations included) in a short transaction, then
+     * {@link #deliver} downloads files and posts with none open.
+     */
     @Override
     public void send(Notification notification) {
+        Post post = transactions.execute(status -> prepare(notification));
+        deliver(notification, post);
+    }
+
+    private Post prepare(Notification notification) {
         UUID taskId = notification.getReferenceId();
         if (taskId == null) {
             log.warn("Telegram notification {} has no task reference", notification.getId());
@@ -89,36 +112,51 @@ public class TelegramGroupNotificationSender implements NotificationSender {
 
         TaskSubmission submission = findSubmission(notification, taskId);
         String chatId = group.getChatId();
+        Long taskMessage = messageInChat(chatId, task.getTelegramChatId(), task.getTelegramMessageId());
 
+        if (submission != null && isReview(notification)) {
+            // Reply to the submission's message; fall back to the assignment's if it wasn't posted here.
+            Long replyTo = messageInChat(chatId, submission.getTelegramChatId(), submission.getTelegramMessageId());
+            return new Post(Kind.REVIEW, taskId, submission.getId(), group.getId(), departmentId, chatId,
+                    messageFormatter.forTaskReviewed(submission), replyTo != null ? replyTo : taskMessage, List.of());
+        }
+        if (submission != null) {
+            List<FileRef> files = submission.getFiles().stream()
+                    .map(f -> new FileRef(f.getOriginalName(), f.getContentType(), f.getStorageKey(), sendsAsPhoto(f)))
+                    .toList();
+            return new Post(Kind.SUBMISSION, taskId, submission.getId(), group.getId(), departmentId, chatId,
+                    messageFormatter.forTaskSubmitted(submission), taskMessage, files);
+        }
+        // Assignment (or any other task event): a new message that later ones reply to.
+        return new Post(Kind.ASSIGNMENT, taskId, null, group.getId(), departmentId, chatId,
+                messageFormatter.forTaskAssigned(task), null, List.of());
+    }
+
+    private void deliver(Notification notification, Post post) {
+        String chatId = post.chatId();
         try {
-            if (submission != null && isReview(notification)) {
-                // Reply to the submission's message; fall back to the assignment's if it wasn't posted here.
-                Long replyTo = messageInChat(chatId, submission.getTelegramChatId(), submission.getTelegramMessageId());
-                if (replyTo == null) {
-                    replyTo = messageInChat(chatId, task.getTelegramChatId(), task.getTelegramMessageId());
+            switch (post.kind()) {
+                case REVIEW -> telegramBotClient.sendMessage(chatId, post.text(), post.replyTo());
+                case SUBMISSION -> {
+                    Long messageId = deliverSubmission(post);
+                    remember("submission", post.submissionId(), messageId,
+                            () -> submissionRepository.saveTelegramMessage(post.submissionId(), chatId, messageId));
                 }
-                telegramBotClient.sendMessage(chatId, messageFormatter.forTaskReviewed(submission), replyTo);
-            } else if (submission != null) {
-                Long replyTo = messageInChat(chatId, task.getTelegramChatId(), task.getTelegramMessageId());
-                Long messageId = deliverSubmission(chatId, submission,
-                        messageFormatter.forTaskSubmitted(submission), replyTo);
-                remember("submission", submission.getId(), messageId,
-                        () -> submissionRepository.saveTelegramMessage(submission.getId(), chatId, messageId));
-            } else {
-                // Assignment (or any other task event): a new message that later ones reply to.
-                Long messageId = telegramBotClient.sendMessage(chatId, messageFormatter.forTaskAssigned(task), null);
-                remember("task", taskId, messageId,
-                        () -> taskRepository.saveTelegramMessage(taskId, chatId, messageId));
+                case ASSIGNMENT -> {
+                    Long messageId = telegramBotClient.sendMessage(chatId, post.text(), null);
+                    remember("task", post.taskId(), messageId,
+                            () -> taskRepository.saveTelegramMessage(post.taskId(), chatId, messageId));
+                }
             }
             log.info("Telegram notification {} for task {} sent to group {} (department {})",
-                    notification.getId(), taskId, group.getId(), departmentId);
+                    notification.getId(), post.taskId(), post.groupId(), post.departmentId());
         } catch (TelegramApiException e) {
             // Only a failure of the main message lands here, so a permanent error means the chat itself
-            // is unusable (bot kicked, chat deleted) — stop routing to it.
+            // is unusable (bot kicked, chat deleted) - stop routing to it.
             if (!e.isRetryable()) {
                 log.warn("Deactivating Telegram group {} for department {} after a permanent error: {}",
-                        group.getId(), departmentId, e.getMessage());
-                groupService.deactivate(group.getId());
+                        post.groupId(), post.departmentId(), e.getMessage());
+                groupService.deactivate(post.groupId());
             }
             throw e;
         }
@@ -129,8 +167,11 @@ public class TelegramGroupNotificationSender implements NotificationSender {
      * Otherwise, or if the album is rejected: the caption as a text message, then the files as
      * replies to it. Returns the id of the message the review should reply to (album lead or text).
      */
-    private Long deliverSubmission(String chatId, TaskSubmission submission, String caption, Long replyTo) {
-        LoadedFiles files = loadFiles(submission);
+    private Long deliverSubmission(Post post) {
+        String chatId = post.chatId();
+        String caption = post.text();
+        UUID submissionId = post.submissionId();
+        LoadedFiles files = loadFiles(submissionId, post.files());
 
         boolean canUseAlbum = !files.photos().isEmpty()
                 && files.documents().isEmpty()
@@ -138,51 +179,51 @@ public class TelegramGroupNotificationSender implements NotificationSender {
 
         if (canUseAlbum) {
             try {
-                Long messageId = telegramBotClient.sendPhotos(chatId, files.photos(), caption, replyTo);
-                log.info("Submission {}: sent {} photo(s) with caption", submission.getId(), files.photos().size());
+                Long messageId = telegramBotClient.sendPhotos(chatId, files.photos(), caption, post.replyTo());
+                log.info("Submission {}: sent {} photo(s) with caption", submissionId, files.photos().size());
                 return messageId;
             } catch (TelegramApiException e) {
                 // Often a problem with the media itself (e.g. a 400 for bad dimensions), not the chat,
                 // so don't deactivate the group here. If the chat is really gone, the text message
-                // below fails too and send() deactivates it.
+                // below fails too and deliver() deactivates it.
                 log.warn("Submission {}: album send failed, falling back to text + files: {}",
-                        submission.getId(), e.getMessage());
+                        submissionId, e.getMessage());
             }
         }
 
-        Long messageId = telegramBotClient.sendMessage(chatId, caption, replyTo);
+        Long messageId = telegramBotClient.sendMessage(chatId, caption, post.replyTo());
         // Files reply to the submission text, so they read as part of it.
-        sendFilesBestEffort(chatId, submission, files, messageId != null ? messageId : replyTo);
+        sendFilesBestEffort(chatId, submissionId, files, messageId != null ? messageId : post.replyTo());
         return messageId;
     }
 
-    private LoadedFiles loadFiles(TaskSubmission submission) {
+    private LoadedFiles loadFiles(UUID submissionId, List<FileRef> refs) {
         List<TelegramFile> photos = new ArrayList<>();
         List<TelegramFile> documents = new ArrayList<>();
-        for (TaskSubmissionFile file : submission.getFiles()) {
+        for (FileRef file : refs) {
             try {
                 TelegramFile telegramFile = new TelegramFile(
-                        file.getOriginalName(), file.getContentType(), storageService.download(file.getStorageKey()));
-                (sendsAsPhoto(file) ? photos : documents).add(telegramFile);
+                        file.name(), file.contentType(), storageService.download(file.storageKey()));
+                (file.photo() ? photos : documents).add(telegramFile);
             } catch (RuntimeException e) {
                 log.warn("Submission {}: could not read '{}' from storage for Telegram: {}",
-                        submission.getId(), file.getOriginalName(), e.getMessage());
+                        submissionId, file.name(), e.getMessage());
             }
         }
         return new LoadedFiles(photos, documents);
     }
 
     /**
-     * Best effort: the message already went out, so a failed file is logged rather than thrown —
+     * Best effort: the message already went out, so a failed file is logged rather than thrown -
      * throwing would make the retry scheduler post the whole message again.
      */
-    private void sendFilesBestEffort(String chatId, TaskSubmission submission, LoadedFiles files, Long replyTo) {
+    private void sendFilesBestEffort(String chatId, UUID submissionId, LoadedFiles files, Long replyTo) {
         if (!files.photos().isEmpty()) {
             try {
                 telegramBotClient.sendPhotos(chatId, files.photos(), null, replyTo);
             } catch (TelegramApiException e) {
                 log.warn("Submission {}: sending {} photo(s) to Telegram failed: {}",
-                        submission.getId(), files.photos().size(), e.getMessage());
+                        submissionId, files.photos().size(), e.getMessage());
             }
         }
         for (TelegramFile document : files.documents()) {
@@ -190,11 +231,11 @@ public class TelegramGroupNotificationSender implements NotificationSender {
                 telegramBotClient.sendDocument(chatId, document, replyTo);
             } catch (TelegramApiException e) {
                 log.warn("Submission {}: sending '{}' to Telegram failed: {}",
-                        submission.getId(), document.fileName(), e.getMessage());
+                        submissionId, document.fileName(), e.getMessage());
             }
         }
         log.info("Submission {}: forwarded {} photo(s) and {} document(s) to Telegram",
-                submission.getId(), files.photos().size(), files.documents().size());
+                submissionId, files.photos().size(), files.documents().size());
     }
 
     /** The submission behind a "submitted for review" notification, or null for other notifications. */
