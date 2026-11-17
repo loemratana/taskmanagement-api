@@ -153,6 +153,15 @@ management:
       # /management/health/liveness and /readiness for Docker / Kubernetes probes.
       probes:
         enabled: true
+      group:
+        # Liveness stays process-only so a DB/MinIO outage never makes Docker/K8s restart the app.
+        # Readiness also requires the database and MinIO, so traffic only goes to a usable instance.
+        readiness:
+          include: readinessState,db,minio
+  health:
+    # SMTP being down should not mark the whole API DOWN; mail failures are handled per send.
+    mail:
+      enabled: false
   info:
     env:
       enabled: true
