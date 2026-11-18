@@ -21,7 +21,7 @@ The runner connects *out* to GitHub, so no inbound SSH/RDP is needed for deploys
 |---|---|---|
 | `deploy.ps1` | runs from the checkout | Deploy + health check + rollback |
 | `tms-api.xml` | `E:\company\applications\task-management\` | WinSW service for the API |
-| `web.config` | IIS site folder | HTTPS reverse proxy to `localhost:8080` |
+| `web.config` | IIS site folder | HTTPS reverse proxy to `localhost:8082` |
 
 ## One-time server setup
 
@@ -53,7 +53,7 @@ PostgreSQL and MinIO are already installed on the server. Only Java is new.
 
 1. Create `E:\company\applications\task-management` and copy `WinSW-x64.exe` there as `tms-api.exe` and `tms-api.xml` next to it.
 2. Create `E:\company\applications\task-management\.env` from `.env.example` with **production** values:
-   - `SPRING_PROFILES_ACTIVE=prod`, `SERVER_PORT=8080`
+   - `SPRING_PROFILES_ACTIVE=prod`, `SERVER_PORT=8082`
    - `DB_HOST=localhost`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` (the user from step 1)
    - `MINIO_ENDPOINT=http://localhost:<your MinIO API port>`, `MINIO_PUBLIC_ENDPOINT=https://taskfiles.company.com`,
      `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` (the credentials of your existing MinIO), `MINIO_BUCKET`
@@ -102,7 +102,7 @@ PostgreSQL and MinIO are already installed on the server. Only Java is new.
    New-Website -Name taskfiles -PhysicalPath C:\inetpub\taskfiles -Port 80 -HostHeader taskfiles.company.com
    ```
    Copy `web.config` into `C:\inetpub\taskapi`. Copy it into `C:\inetpub\taskfiles` as well, changing
-   `localhost:8080` to `localhost:<MinIO API port>` and the rule name to `ReverseProxyToMinio`.
+   `localhost:8082` to `localhost:<MinIO API port>` and the rule name to `ReverseProxyToMinio`.
 4. Go to server node > *URL Rewrite* > *View Server Variables* and add **`HTTP_X_FORWARDED_PROTO`**
    (otherwise the rule returns HTTP 500).
 5. **HTTPS certificate:**
@@ -113,7 +113,7 @@ PostgreSQL and MinIO are already installed on the server. Only Java is new.
      host name in IIS Manager.
 6. In `.env` set `MINIO_PUBLIC_ENDPOINT=https://taskfiles.company.com`, and set `CLIENT_BASE_URL` /
    `CORS_ALLOWED_ORIGINS` to your frontend's URL.
-7. **Windows Firewall:** allow inbound 80 and 443 only. Keep 8080, 5432 and the MinIO API/console ports closed from outside.
+7. **Windows Firewall:** allow inbound 80 and 443 only. Keep 8082, 5432 and the MinIO API/console ports closed from outside.
 
 ## First deploy
 

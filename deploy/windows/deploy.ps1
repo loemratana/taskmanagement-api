@@ -130,7 +130,7 @@ if (-not (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue)) {
 }
 
 $envValues = Read-EnvFile $envFile
-$port      = Get-Setting $envValues 'SERVER_PORT' '8080'
+$port      = Get-Setting $envValues 'SERVER_PORT' '8082'
 $healthUrl = "http://localhost:$port/management/health/readiness"
 
 if (-not $SkipDbBackup) { Backup-Database $envValues }
