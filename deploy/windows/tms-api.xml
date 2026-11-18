@@ -1,0 +1,41 @@
+<!--
+  WinSW service definition for the API.
+  Put next to WinSW-x64.exe renamed to tms-api.exe in E:\company\applications\task-management, then run (as admin):
+      E:\company\applications\task-management\tms-api.exe install
+-->
+<service>
+  <id>tms-api</id>
+  <name>Task Management API</name>
+  <description>Task Management Spring Boot API</description>
+
+  <!-- java.exe on PATH (Temurin installer option). Or give the full path, e.g.
+       C:\Program Files\Eclipse Adoptium\jdk-21.0.x-hotspot\bin\java.exe -->
+  <executable>java</executable>
+  <arguments>-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -jar "%BASE%\app.jar"</arguments>
+
+  <!-- application.yaml imports optional:file:.env relative to the working directory,
+       so E:\company\applications\task-management\.env supplies the secrets. -->
+  <workingdirectory>%BASE%</workingdirectory>
+  <env name="SPRING_PROFILES_ACTIVE" value="prod"/>
+  <env name="TZ" value="Asia/Phnom_Penh"/>
+
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <!-- Optional: start only after PostgreSQL / MinIO after a reboot. Use YOUR service names
+       (Get-Service *postgres*, *minio*), uncomment, then run "tms-api.exe refresh".
+       A wrong name makes "install" fail. delayedAutoStart above already gives them a head start. -->
+  <!-- <depend>postgresql-x64-17</depend> -->
+  <!-- <depend>minio</depend> -->
+
+  <!-- Stop sends Ctrl+C first, so graceful shutdown and the notification pool drain can finish. -->
+  <stoptimeout>45 sec</stoptimeout>
+
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <resetfailure>1 hour</resetfailure>
+
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>10</keepFiles>
+  </log>
+</service>

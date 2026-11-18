@@ -86,77 +86,54 @@ jobs:
 
       - name: Build and test
         run: ./gradlew clean build --no-daemon
+      # Hand the boot jar (not the "-plain" one) to the deploy job. main pushes only.
+      - name: Collect boot jar
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: cp "$(ls build/libs/*.jar | grep -v -- '-plain\.jar$')" app.jar
+
+      - name: Upload jar
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-jar
+          path: app.jar
+          retention-days: 14
+          if-no-files-found: error
 
 
-#  build-and-push:
-#    name: Build & Push Docker Image
-#
-#    runs-on: ubuntu-latest
-#
-#    # Only run after test job succeeds
-#    needs: test
-#
-#    # Only push Docker image when code reaches main
-#    #
-#    # Feature branch → NO Docker push
-#    # Pull Request   → NO Docker push
-#    # main push      → Docker push
-#    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-#
-#    steps:
-#
-#      - name: Checkout code
-#        uses: actions/checkout@v4
-#
-#
-#      - name: Build & Push Docker Image
-#        uses: mr-smithers-excellent/docker-build-push@v6
-#        with:
-#          image: ${{ secrets.DOCKER_USERNAME }}/${{ env.PROJECT_IMAGE_NAME }}
-#          tags: latest
-#          registry: docker.io
-#          dockerfile: Dockerfile
-#
-#          # Docker Hub credentials
-#          username: ${{ secrets.DOCKER_USERNAME }}
-#          password: ${{ secrets.DOCKER_PASSWORD }}
-#
-#
-#
-#  pipeline-result:
-#    name: Pipeline Result
-#    runs-on: ubuntu-latest
-#
-#    needs:
-#      - test
-#      - build-and-push
-#
-#    if: always()
-#
-#    steps:
-#
-#      - name: Check pipeline result
-#        run: |
-#          echo "========================================"
-#          echo "        CI/CD PIPELINE RESULT"
-#          echo "========================================"
-#
-#          echo "Build & Test: ${{ needs.test.result }}"
-#          echo "Docker Build & Push: ${{ needs.build-and-push.result }}"
-#
-#          if [[ "${{ needs.test.result }}" == "success" && \
-#                ("${{ needs.build-and-push.result }}" == "success" || \
-#                 "${{ needs.build-and-push.result }}" == "skipped") ]]; then
-#
-#            echo "========================================"
-#            echo "✅ CI/CD PIPELINE SUCCESS"
-#            echo "========================================"
-#
-#          else
-#
-#            echo "========================================"
-#            echo "❌ CI/CD PIPELINE FAILED"
-#            echo "========================================"
-#
-#            exit 1
-#          fi
+  deploy:
+    name: Deploy to Windows Server
+    needs: test
+
+    # Feature branch -> NO deploy
+    # Pull Request   -> NO deploy
+    # main push      -> deploy
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    # The self-hosted runner installed on the Windows Server (see deploy/windows/README.md).
+    runs-on: [self-hosted, windows, tms-prod]
+
+    # Add "Required reviewers" to this environment in GitHub for a manual approval gate.
+    environment: production
+
+    # Never run two deploys at the same time; a newer one waits for the running one.
+    concurrency:
+      group: production
+      cancel-in-progress: false
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+
+      - name: Download jar
+        uses: actions/download-artifact@v4
+        with:
+          name: app-jar
+          path: dist
+
+
+      - name: Deploy
+        shell: powershell
+        run: .\deploy\windows\deploy.ps1 -JarPath dist\app.jar
