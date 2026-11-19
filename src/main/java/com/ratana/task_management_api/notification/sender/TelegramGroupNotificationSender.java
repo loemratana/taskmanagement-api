@@ -147,6 +147,7 @@ public class TelegramGroupNotificationSender implements NotificationSender {
                     remember("task", post.taskId(), messageId,
                             () -> taskRepository.saveTelegramMessage(post.taskId(), chatId, messageId));
                 }
+                default -> throw new IllegalStateException("Unhandled Telegram post kind: " + post.kind());
             }
             log.info("Telegram notification {} for task {} sent to group {} (department {})",
                     notification.getId(), post.taskId(), post.groupId(), post.departmentId());
