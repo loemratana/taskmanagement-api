@@ -4,6 +4,7 @@ import com.ratana.task_management_api.booking.repository.MeetingBookingRepositor
 import com.ratana.task_management_api.booking.service.MeetingAttendanceService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -19,6 +20,7 @@ public class MeetingAttendanceScheduler {
     private final MeetingBookingRepository bookingRepository;
     private final MeetingAttendanceService attendanceService;
 
+    @SchedulerLock(name = "meeting-attendance-finalize", lockAtLeastFor = "PT1M", lockAtMostFor = "PT15M")
     @Scheduled(fixedDelayString = "${app.booking.attendance-check-interval-ms:300000}")
     public void finalizeEndedMeetings() {
         List<UUID> bookingIds = bookingRepository.findIdsToFinalizeAttendance(attendanceService.finalizeCutoff());

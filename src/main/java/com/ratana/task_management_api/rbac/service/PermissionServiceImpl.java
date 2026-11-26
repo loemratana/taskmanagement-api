@@ -1,5 +1,7 @@
 package com.ratana.task_management_api.rbac.service;
 
+import com.ratana.task_management_api.common.cache.AppCaches;
+
 
 import com.ratana.task_management_api.rbac.dto.request.PermissionRequest;
 import com.ratana.task_management_api.rbac.dto.response.PermissionResponse;
@@ -23,6 +25,7 @@ public class PermissionServiceImpl implements PermissionService {
 
     private final PermissionRepository permissionRepository;
     private final PermissionMapper permissionMapper;
+    private final AppCaches caches;
 
 
     @Override
@@ -37,6 +40,10 @@ public class PermissionServiceImpl implements PermissionService {
         Permission permission = permissionMapper.toEntity(request);
         permission.setActive(true);
         Permission saved = permissionRepository.save(permission);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.permissions().invalidateAll();
+        caches.roles().invalidateAll();
+        caches.principals().invalidateAll();
         log.info("Permission created: {} ({})", saved.getName(), saved.getId());
 
         return permissionMapper.toResponse(saved);
@@ -54,6 +61,10 @@ public class PermissionServiceImpl implements PermissionService {
         }
         permissionMapper.updateEntityFromRequest(request,permission);
         Permission saved = permissionRepository.save(permission);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.permissions().invalidateAll();
+        caches.roles().invalidateAll();
+        caches.principals().invalidateAll();
         log.info("Permission updated: {} ({})", saved.getName(), saved.getId());
         return null;
     }
@@ -67,8 +78,11 @@ public class PermissionServiceImpl implements PermissionService {
 
     @Override
     public List<PermissionResponse> getAll() {
-        log.debug("Fetching all permissions");
-        return permissionMapper.toResponse(permissionRepository.findAll());
+        // Cache-aside: cached list, or load from the database and cache it.
+        return caches.permissions().get(AppCaches.ALL, () -> {
+            log.debug("Fetching all permissions");
+            return permissionMapper.toResponse(permissionRepository.findAll());
+        });
     }
 
     @Override
@@ -78,6 +92,10 @@ public class PermissionServiceImpl implements PermissionService {
         // Soft delete — roles referencing this permission simply stop granting it going forward
         permission.setActive(false);
         permissionRepository.save(permission);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.permissions().invalidateAll();
+        caches.roles().invalidateAll();
+        caches.principals().invalidateAll();
         log.info("Permission deactivated: {} ({})", permission.getName(), id);
 
     }

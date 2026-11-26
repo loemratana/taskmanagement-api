@@ -7,6 +7,7 @@ import com.ratana.task_management_api.notification.service.DeliveryRetryPolicy;
 import com.ratana.task_management_api.notification.service.NotificationDispatcher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -39,6 +40,7 @@ public class RetryScheduler {
     private final DeliveryRetryPolicy policy;
     private final Clock clock;
 
+    @SchedulerLock(name = "notification-retry", lockAtLeastFor = "PT30S", lockAtMostFor = "PT10M")
     @Scheduled(fixedDelayString = "${app.notification.retry.interval-ms:60000}")
     public void retryFailedDeliveries() {
         Instant now = clock.instant();

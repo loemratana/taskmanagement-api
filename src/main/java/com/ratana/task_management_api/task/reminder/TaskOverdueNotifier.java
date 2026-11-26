@@ -10,6 +10,7 @@ import com.ratana.task_management_api.task.enums.TaskStatus;
 import com.ratana.task_management_api.task.repository.TaskRepository;
 import com.ratana.task_management_api.user.entity.User;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -70,6 +71,7 @@ public class TaskOverdueNotifier {
         this.zone = ZoneId.of(zone);
     }
 
+    @SchedulerLock(name = "task-overdue-notify", lockAtLeastFor = "PT5M", lockAtMostFor = "PT30M")
     @Scheduled(cron = "${app.reminder.overdue-cron:0 0 9 * * *}", zone = "${app.reminder.default-timezone:Asia/Phnom_Penh}")
     public void notifyNewlyOverdue() {
         LocalDate yesterday = LocalDate.now(clock.withZone(zone)).minusDays(1);

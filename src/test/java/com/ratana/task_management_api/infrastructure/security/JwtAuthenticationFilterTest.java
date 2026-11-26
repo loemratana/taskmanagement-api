@@ -1,5 +1,7 @@
 package com.ratana.task_management_api.infrastructure.security;
 
+import com.ratana.task_management_api.common.cache.AppCaches;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,6 +14,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
@@ -36,7 +39,9 @@ class JwtAuthenticationFilterTest {
         ReflectionTestUtils.setField(tokenProvider, "accessTokenExpiration", 60_000L);
         ReflectionTestUtils.setField(tokenProvider, "refreshTokenExpiration", 600_000L);
         userDetailsService = mock(UserDetailsService.class);
-        filter = new JwtAuthenticationFilter(tokenProvider, userDetailsService);
+        // Fresh caches per test, so no principal carries over between tests.
+        AppCaches caches = new AppCaches(new SimpleMeterRegistry(), Duration.ofMinutes(1), Duration.ofMinutes(10));
+        filter = new JwtAuthenticationFilter(tokenProvider, new RequestPrincipalLoader(userDetailsService, caches));
         chain = mock(FilterChain.class);
         SecurityContextHolder.clearContext();
     }
