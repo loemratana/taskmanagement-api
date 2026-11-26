@@ -52,6 +52,9 @@ dependencies {
 
 
     implementation("org.flywaydb:flyway-database-postgresql")
+    // One instance at a time runs each @Scheduled job (lock row in the shedlock table, V27).
+    implementation("net.javacrumbs.shedlock:shedlock-spring:7.11.0")
+    implementation("net.javacrumbs.shedlock:shedlock-provider-jdbc-template:7.11.0")
     compileOnly("org.projectlombok:lombok:1.18.46")
     annotationProcessor("org.projectlombok:lombok:1.18.46")
     runtimeOnly("org.postgresql:postgresql")

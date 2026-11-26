@@ -3,6 +3,7 @@ package com.ratana.task_management_api.performance.scheduler;
 import com.ratana.task_management_api.performance.service.PerformanceAwardService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -18,6 +19,7 @@ public class PerformanceAwardScheduler {
 
     private final PerformanceAwardService awardService;
 
+    @SchedulerLock(name = "performance-award-monthly", lockAtLeastFor = "PT5M", lockAtMostFor = "PT30M")
     @Scheduled(cron = "${app.performance.awards.monthly-cron:0 0 9 1 * *}",
             zone = "${app.performance.zone:Asia/Phnom_Penh}")
     public void announceLastMonth() {
@@ -25,6 +27,7 @@ public class PerformanceAwardScheduler {
         awardService.publishPreviousMonth();
     }
 
+    @SchedulerLock(name = "performance-award-yearly", lockAtLeastFor = "PT5M", lockAtMostFor = "PT30M")
     @Scheduled(cron = "${app.performance.awards.yearly-cron:0 0 9 2 1 *}",
             zone = "${app.performance.zone:Asia/Phnom_Penh}")
     public void announceLastYear() {

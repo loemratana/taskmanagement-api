@@ -5,6 +5,7 @@ import com.ratana.task_management_api.announcement.repository.AnnouncementReposi
 import com.ratana.task_management_api.announcement.service.AnnouncementService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,7 @@ public class AnnouncementScheduler {
     private final AnnouncementService announcementService;
     private final Clock clock;
 
+    @SchedulerLock(name = "announcement-publish", lockAtLeastFor = "PT30S", lockAtMostFor = "PT10M")
     @Scheduled(fixedDelayString = "${app.announcement.check-interval-ms:60000}")
     public void run() {
         List<UUID> due = announcementRepository.findIdsDueForPublish(AnnouncementStatus.SCHEDULED, clock.instant());

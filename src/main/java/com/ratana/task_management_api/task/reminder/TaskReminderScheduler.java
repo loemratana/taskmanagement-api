@@ -5,6 +5,7 @@ import com.ratana.task_management_api.task.entity.Task;
 import com.ratana.task_management_api.task.repository.TaskRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -36,6 +37,7 @@ public class TaskReminderScheduler {
     @Value("${app.reminder.window-minutes:5}")
     private int windowMinutes;
 
+    @SchedulerLock(name = "task-reminder-check", lockAtLeastFor = "PT30S", lockAtMostFor = "PT10M")
     @Scheduled(fixedDelayString = "${app.reminder.check-interval-ms:60000}")
     public void checkReminders() {
         List<Task> candidates = taskRepository.findActiveNonTerminalWithAssignee(TaskStatus.NO_REMINDER_STATUSES);
