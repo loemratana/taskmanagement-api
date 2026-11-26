@@ -2,22 +2,25 @@ package com.ratana.task_management_api.dashboard.service;
 
 import com.ratana.task_management_api.dashboard.dto.request.DashboardFilter;
 import com.ratana.task_management_api.dashboard.dto.response.DashboardSummaryResponse;
-import com.ratana.task_management_api.task.enums.TaskStatus;
-import com.ratana.task_management_api.common.exception.ResourceNotFoundException;
-import com.ratana.task_management_api.task.mapper.TaskMapper;
-import com.ratana.task_management_api.organization.entity.Department;
-import com.ratana.task_management_api.task.entity.Task;
-import com.ratana.task_management_api.user.entity.User;
-import com.ratana.task_management_api.organization.repository.DepartmentRepository;
-import com.ratana.task_management_api.task.repository.TaskRepository;
-import com.ratana.task_management_api.user.repository.UserRepository;
 import com.ratana.task_management_api.infrastructure.security.UserPrincipal;
+import com.ratana.task_management_api.organization.dto.response.DepartmentResponse;
+import com.ratana.task_management_api.organization.service.DepartmentService;
+import com.ratana.task_management_api.task.entity.Task;
+import com.ratana.task_management_api.task.enums.TaskStatus;
+import com.ratana.task_management_api.task.mapper.TaskMapper;
 import com.ratana.task_management_api.task.specification.TaskSpecifications;
+import com.ratana.task_management_api.user.repository.UserRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.JoinType;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Sort;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
@@ -27,13 +30,24 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 import static com.ratana.task_management_api.dashboard.specification.DashboardSpecification.*;
 
+/**
+ * Dashboard summary in a handful of queries, since each one is a network round trip:
+ * <ol>
+ *   <li>one GROUP BY department, status: every count, the status breakdown and the department chart;</li>
+ *   <li>one GROUP BY role (admin only): employee and manager totals;</li>
+ *   <li>the 20 newest tasks with their people joined in (no count query), plus the mapper's
+ *       batched loads of assignments/subtasks.</li>
+ * </ol>
+ * The caller's roles come from the request principal and the department list from the cache.
+ */
 @Service
 @Slf4j
 @RequiredArgsConstructor
@@ -54,11 +68,11 @@ public class DashboardServiceImpl implements DashboardService {
             TaskStatus.DONE, TaskStatus.REJECTED
     );
 
-    private final TaskRepository taskRepository;
     private final UserRepository userRepository;
-    private final DepartmentRepository departmentRepository;
+    private final DepartmentService departmentService;
     private final TaskMapper taskMapper;
     private final Clock clock;
+    private final EntityManager entityManager;
 
     /** "Today" for overdue counts is the business date, not the server's (UTC in Docker). */
     @Value("${app.reminder.default-timezone:Asia/Phnom_Penh}")
@@ -75,18 +89,16 @@ public class DashboardServiceImpl implements DashboardService {
             throw new AccessDeniedException("Unauthenticated");
         }
 
-        User currentUser = userRepository.findById(principal.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        boolean isAdmin = hasRoleName(currentUser, ROLE_ADMIN);
+        // Roles from the authenticated principal (active roles only), not another user query.
+        boolean isAdmin = hasRole(principal, ROLE_ADMIN);
         // Archived tasks never count, matching /tasks/me/assigned-kpi. A group task counts once per
         // member (its subtasks), not again as the parent.
-        Specification<Task> spec = resolveScope(currentUser, isAdmin, filter)
+        Specification<Task> spec = resolveScope(principal, isAdmin, filter)
                 .and(TaskSpecifications.activeOnly())
                 .and(TaskSpecifications.notGroupTask());
 
         log.debug("Building dashboard summary for user={} (admin={}) with filter={}",
-                currentUser.getId(), isAdmin, filter);
+                principal.getId(), isAdmin, filter);
 
         return buildSummary(spec, isAdmin);
     }
@@ -96,33 +108,32 @@ public class DashboardServiceImpl implements DashboardService {
     // =====================================================================
 
     private DashboardSummaryResponse buildSummary(Specification<Task> spec, boolean isAdmin) {
-        long totalTasks      = taskRepository.count(spec);
-        long activeTasks     = taskRepository.count(spec.and(hasStatus(TaskStatus.IN_PROGRESS)));
-        long completedTasks  = taskRepository.count(spec.and(hasStatus(TaskStatus.DONE)));
-        long pendingApproval = taskRepository.count(spec.and(hasStatus(TaskStatus.IN_REVIEW)));
-        long overdueTasks    = taskRepository.count(spec.and(overdue(LocalDate.ofInstant(clock.instant(), businessZone), FINISHED_STATUSES)));
+        TaskCounts counts = countTasks(spec, LocalDate.ofInstant(clock.instant(), businessZone));
 
-        Long totalEmployees = isAdmin ? userRepository.countByRoles_NameIgnoreCase(ROLE_EMPLOYEE) : null;
-        Long totalManagers  = isAdmin ? userRepository.countByRoles_NameIgnoreCase(ROLE_MANAGER)  : null;
+        Long totalEmployees = null;
+        Long totalManagers = null;
+        if (isAdmin) {
+            Map<String, Long> byRole = countUsersByRole();
+            totalEmployees = byRole.getOrDefault(ROLE_EMPLOYEE, 0L);
+            totalManagers = byRole.getOrDefault(ROLE_MANAGER, 0L);
+        }
 
         int fetchLimit = Math.max(RECENT_LIMIT, ACTIVITY_LIMIT) * 2;
-        List<Task> recent = taskRepository
-                .findAll(spec, PageRequest.of(0, fetchLimit, Sort.by(Sort.Direction.DESC, "createdAt")))
-                .getContent();
+        List<Task> recent = findNewest(spec, fetchLimit);
 
-        log.debug("Dashboard counts (admin={}): total={}, active={}, completed={}, pendingApproval={}, overdue={}",
-                isAdmin, totalTasks, activeTasks, completedTasks, pendingApproval, overdueTasks);
+        log.debug("Dashboard counts (admin={}): total={}, byStatus={}, overdue={}",
+                isAdmin, counts.total, counts.byStatus, counts.overdue);
 
         return DashboardSummaryResponse.builder()
                 .totalEmployees(totalEmployees)
                 .totalManagers(totalManagers)
-                .totalTasks(totalTasks)
-                .activeTasks(activeTasks)
-                .completedTasks(completedTasks)
-                .pendingApproval(pendingApproval)
-                .overdueTasks(overdueTasks)
-                .taskStatusBreakdown(buildStatusBreakdown(spec))
-                .departmentPerformance(buildDepartmentPerformance(spec, isAdmin))
+                .totalTasks(counts.total)
+                .activeTasks(counts.byStatus.getOrDefault(TaskStatus.IN_PROGRESS, 0L))
+                .completedTasks(counts.byStatus.getOrDefault(TaskStatus.DONE, 0L))
+                .pendingApproval(counts.byStatus.getOrDefault(TaskStatus.IN_REVIEW, 0L))
+                .overdueTasks(counts.overdue)
+                .taskStatusBreakdown(buildStatusBreakdown(counts.byStatus))
+                .departmentPerformance(buildDepartmentPerformance(counts.byDepartment, isAdmin))
                 .recentTasks(taskMapper.toListResponse(recent.stream().limit(RECENT_LIMIT).toList()))
                 .recentActivities(buildRecentActivities(recent))
                 .build();
@@ -132,13 +143,96 @@ public class DashboardServiceImpl implements DashboardService {
     // Scoped aggregations
     // =====================================================================
 
-    /** Scoped status breakdown: counts tasks within the current spec, grouped by status. */
-    private List<DashboardSummaryResponse.StatusCount> buildStatusBreakdown(Specification<Task> spec) {
+    /** Every task count the dashboard shows, from one GROUP BY query. */
+    private static final class TaskCounts {
+        long total;
+        long overdue;
+        final Map<TaskStatus, Long> byStatus = new EnumMap<>(TaskStatus.class);
+        final Map<UUID, Long> byDepartment = new HashMap<>();
+    }
+
+    /**
+     * SELECT department_id, status, COUNT(*), SUM(due_date &lt; today) FROM tasks WHERE spec
+     * GROUP BY department_id, status. Overdue = due before today and not finished
+     * (same rule as DashboardSpecification#overdue).
+     */
+    private TaskCounts countTasks(Specification<Task> spec, LocalDate today) {
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Object[]> query = cb.createQuery(Object[].class);
+        Root<Task> root = query.from(Task.class);
+
+        Path<UUID> department = root.get("department").get("id");
+        Path<TaskStatus> status = root.get("status");
+        Expression<Long> dueBeforeToday = cb.<Long>selectCase()
+                .when(cb.lessThan(root.get("dueDate"), today), 1L)
+                .otherwise(0L);
+
+        Predicate where = spec.toPredicate(root, query, cb);
+        if (where != null) {
+            query.where(where);
+        }
+        query.multiselect(department, status, cb.count(root), cb.sum(dueBeforeToday))
+                .groupBy(department, status);
+
+        TaskCounts counts = new TaskCounts();
+        for (Object[] row : entityManager.createQuery(query).getResultList()) {
+            UUID departmentId = (UUID) row[0];
+            TaskStatus rowStatus = (TaskStatus) row[1];
+            long count = ((Number) row[2]).longValue();
+            long dueBefore = row[3] == null ? 0L : ((Number) row[3]).longValue();
+
+            counts.total += count;
+            if (rowStatus != null) {
+                counts.byStatus.merge(rowStatus, count, Long::sum);
+                if (!FINISHED_STATUSES.contains(rowStatus)) {
+                    counts.overdue += dueBefore;
+                }
+            }
+            if (departmentId != null) {
+                counts.byDepartment.merge(departmentId, count, Long::sum);
+            }
+        }
+        return counts;
+    }
+
+    /** Users holding each role, keyed by upper-case role name. */
+    private Map<String, Long> countUsersByRole() {
+        Map<String, Long> byRole = new HashMap<>();
+        for (Object[] row : userRepository.countUsersByRoleName(List.of(ROLE_EMPLOYEE, ROLE_MANAGER))) {
+            byRole.put((String) row[0], ((Number) row[1]).longValue());
+        }
+        return byRole;
+    }
+
+    /**
+     * The newest tasks in scope with their department and people joined in: one query, and no
+     * COUNT query (a Page would add one that nothing reads).
+     */
+    private List<Task> findNewest(Specification<Task> spec, int limit) {
+        CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+        CriteriaQuery<Task> query = cb.createQuery(Task.class);
+        Root<Task> root = query.from(Task.class);
+        // To-one joins only, so LIMIT still applies in SQL (a collection fetch would page in memory).
+        root.fetch("department", JoinType.LEFT);
+        root.fetch("assignee", JoinType.LEFT);
+        root.fetch("creator", JoinType.LEFT);
+        root.fetch("assignedBy", JoinType.LEFT);
+
+        Predicate where = spec.toPredicate(root, query, cb);
+        if (where != null) {
+            query.where(where);
+        }
+        query.select(root).orderBy(cb.desc(root.get("createdAt")));
+        return entityManager.createQuery(query).setMaxResults(limit).getResultList();
+    }
+
+    /** Scoped status breakdown, in a fixed order. */
+    private List<DashboardSummaryResponse.StatusCount> buildStatusBreakdown(Map<TaskStatus, Long> counts) {
         List<DashboardSummaryResponse.StatusCount> breakdown = new ArrayList<>();
         for (TaskStatus status : STATUS_BREAKDOWN_ORDER) {
             breakdown.add(DashboardSummaryResponse.StatusCount.builder()
                     .status(status.name())
-                    .count(taskRepository.count(spec.and(hasStatus(status))))
+                    .count(counts.getOrDefault(status, 0L))
                     .build());
         }
         return breakdown;
@@ -148,20 +242,13 @@ public class DashboardServiceImpl implements DashboardService {
      * Scoped department performance.
      * - ADMIN sees every active department (even zero-count ones) so the chart is stable.
      * - Non-admins only see departments that actually appear in their scoped tasks.
+     * Departments come from the cached list (GET /departments), sorted by name.
      */
     private List<DashboardSummaryResponse.DepartmentTaskCount> buildDepartmentPerformance(
-            Specification<Task> spec, boolean isAdmin) {
-
-        Map<UUID, Long> counts = new LinkedHashMap<>();
-        for (Task task : taskRepository.findAll(spec)) {
-            if (task.getDepartment() == null) {
-                continue;
-            }
-            counts.merge(task.getDepartment().getId(), 1L, Long::sum);
-        }
+            Map<UUID, Long> counts, boolean isAdmin) {
 
         List<DashboardSummaryResponse.DepartmentTaskCount> performance = new ArrayList<>();
-        for (Department dept : departmentRepository.findAllByOrderByNameAsc()) {
+        for (DepartmentResponse dept : departmentService.getAllFlat()) {
             if (!dept.isActive()) {
                 continue;
             }
@@ -181,7 +268,7 @@ public class DashboardServiceImpl implements DashboardService {
     // Scope resolution
     // =====================================================================
 
-    private Specification<Task> resolveScope(User user, boolean isAdmin, DashboardFilter filter) {
+    private Specification<Task> resolveScope(UserPrincipal user, boolean isAdmin, DashboardFilter filter) {
         DashboardFilter f = (filter != null) ? filter : new DashboardFilter();
 
         if (isAdmin) {
@@ -198,14 +285,14 @@ public class DashboardServiceImpl implements DashboardService {
             throw new AccessDeniedException("Only ADMIN can filter by managerId/departmentId/employeeId");
         }
 
-        if (hasRoleName(user, ROLE_MANAGER)) {
+        if (hasRole(user, ROLE_MANAGER)) {
             return allOf(
                     assignedBy(user.getId()),
                     createdBetween(f.getStartDate(), f.getEndDate())
             );
         }
 
-        if (hasRoleName(user, ROLE_EMPLOYEE)) {
+        if (hasRole(user, ROLE_EMPLOYEE)) {
             return allOf(
                     byEmployee(user.getId()),
                     createdBetween(f.getStartDate(), f.getEndDate())
@@ -248,12 +335,9 @@ public class DashboardServiceImpl implements DashboardService {
     // Helpers
     // =====================================================================
 
-    private static boolean hasRoleName(User user, String role) {
-        if (user == null || user.getRoles() == null || role == null) return false;
-        return user.getRoles().stream()
-                .anyMatch(r -> r != null
-                        && r.isActive()
-                        && r.getName() != null
-                        && role.equalsIgnoreCase(r.getName()));
+    /** Principal roles hold only active roles (UserPrincipal#createUserPrincipal filters them). */
+    private static boolean hasRole(UserPrincipal principal, String role) {
+        return principal.getRoles() != null
+                && principal.getRoles().stream().anyMatch(role::equalsIgnoreCase);
     }
 }

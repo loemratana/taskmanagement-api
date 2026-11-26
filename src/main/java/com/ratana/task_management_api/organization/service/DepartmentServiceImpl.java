@@ -1,5 +1,7 @@
 package com.ratana.task_management_api.organization.service;
 
+import com.ratana.task_management_api.common.cache.AppCaches;
+
 import com.ratana.task_management_api.organization.dto.request.DepartmentRequest;
 import com.ratana.task_management_api.organization.dto.response.DepartmentMemberResponse;
 import com.ratana.task_management_api.organization.dto.response.DepartmentResponse;
@@ -45,6 +47,7 @@ public class DepartmentServiceImpl implements DepartmentService {
     private final UserMapper userMapper;
 
     private final PositionRepository positionRepository;
+    private final AppCaches caches;
 
     @Override
     public DepartmentResponse create(DepartmentRequest request) {
@@ -68,6 +71,9 @@ public class DepartmentServiceImpl implements DepartmentService {
             department.setManager(null);
         }
         Department saved = departmentRepository.save(department);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.departments().invalidateAll();
+        caches.positions().invalidateAll();
 
         log.info(
                 "Department created successfully. id={}, name={}, manager={}",
@@ -95,6 +101,9 @@ public class DepartmentServiceImpl implements DepartmentService {
            department.setManager(userRepository.findById(request.getManagerId()).get());
        }
         Department saved = departmentRepository.save(department);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.departments().invalidateAll();
+        caches.positions().invalidateAll();
         log.info("Department updated: {} ({})", saved.getName(), saved.getId());
         return departmentMapper.toResponse(saved);
     }
@@ -174,10 +183,12 @@ public class DepartmentServiceImpl implements DepartmentService {
     @Override
     @Transactional(readOnly = true)
     public List<DepartmentResponse> getAllFlat() {
-
-        List<Department> department=  departmentRepository.findAllByOrderByNameAsc();
-        log.debug("Fetched {} department(s)", department.size());
-        return departmentMapper.toResponseList(department);
+        // Cache-aside: cached list, or load from the database and cache it.
+        return caches.departments().get(AppCaches.ALL, () -> {
+            List<Department> department = departmentRepository.findAllByOrderByNameAsc();
+            log.debug("Fetched {} department(s)", department.size());
+            return departmentMapper.toResponseList(department);
+        });
     }
 
     @Override
@@ -186,6 +197,9 @@ public class DepartmentServiceImpl implements DepartmentService {
         Department department = departmentRepository.findById(id).orElseThrow(()->new ResourceNotFoundException("DEPARTMENT not found with id:"+id));
         department.setActive(false);
         departmentRepository.save(department);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.departments().invalidateAll();
+        caches.positions().invalidateAll();
         log.info("Department deleted: {} ({})", department.getName(), department.getId());
 
     }
@@ -211,6 +225,9 @@ public class DepartmentServiceImpl implements DepartmentService {
             );        }
         department.setManager(manager);
         Department saved = departmentRepository.save(department);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.departments().invalidateAll();
+        caches.positions().invalidateAll();
         log.info("Manager {} ({}) assigned to department {} ({})",
                 manager.getEmail(), managerId, saved.getName(), departmentId);
 

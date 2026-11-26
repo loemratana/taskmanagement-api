@@ -43,9 +43,9 @@ public interface UserRepository extends JpaRepository<User, UUID> , JpaSpecifica
     Optional<User> findByIdWithRoles(@Param("id") UUID id);
 
 
-    @EntityGraph(attributePaths = {
-            "roles"
-    })
+    // Runs on every authenticated request (JwtAuthenticationFilter): fetch roles and their
+    // permissions in one query instead of one extra query per role.
+    @EntityGraph("User.withRolesAndPermissions")
     Optional<User> findByEmail(String email);
 
 
@@ -93,6 +93,14 @@ public interface UserRepository extends JpaRepository<User, UUID> , JpaSpecifica
     List<UUID> findDirectReportIds(@Param("managerId") UUID managerId);
 
     long countByRoles_NameIgnoreCase(String roleName);
+
+    /**
+     * Users per role, for several roles in one query: rows of [UPPER(role name), user count].
+     * Same rule as {@link #countByRoles_NameIgnoreCase}; pass the names in upper case.
+     */
+    @Query("SELECT UPPER(r.name), COUNT(DISTINCT u.id) FROM User u JOIN u.roles r"
+            + " WHERE UPPER(r.name) IN :roleNames GROUP BY UPPER(r.name)")
+    List<Object[]> countUsersByRoleName(@Param("roleNames") Collection<String> roleNames);
 
     /**
      * Loads every user with department and position in one query, for building the

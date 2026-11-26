@@ -49,6 +49,8 @@ dependencies {
 
 
     implementation("org.springframework.boot:spring-boot-starter-mail")
+    // In-memory caches with size limits and expiry, used cache-aside (common/cache/AppCaches). Version managed by Spring Boot.
+    implementation("com.github.ben-manes.caffeine:caffeine")
 
 
     implementation("org.flywaydb:flyway-database-postgresql")

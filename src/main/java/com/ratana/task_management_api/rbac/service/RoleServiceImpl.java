@@ -1,5 +1,7 @@
 package com.ratana.task_management_api.rbac.service;
 
+import com.ratana.task_management_api.common.cache.AppCaches;
+
 import com.ratana.task_management_api.rbac.dto.request.AssignPermissionsRequest;
 import com.ratana.task_management_api.rbac.dto.request.RoleRequest;
 import com.ratana.task_management_api.rbac.dto.response.RoleResponse;
@@ -29,6 +31,7 @@ public class RoleServiceImpl implements RoleService {
     private final RoleRepository roleRepository;
     private final PermissionRepository permissionRepository;
     private final RoleMapper roleMapper;
+    private final AppCaches caches;
 
     @Override
     @Transactional
@@ -47,6 +50,9 @@ public class RoleServiceImpl implements RoleService {
         role.setPermissions(permissions);
 
         Role saved = roleRepository.save(role);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.roles().invalidateAll();
+        caches.principals().invalidateAll();
         log.info("Role created: {} ({})", saved.getName(), saved.getId());
 
         return roleMapper.toResponse(saved);
@@ -66,6 +72,9 @@ public class RoleServiceImpl implements RoleService {
         roleMapper.updateEntityFromRequest(request, role);
 
         Role saved = roleRepository.save(role);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.roles().invalidateAll();
+        caches.principals().invalidateAll();
         log.info("Role updated: {} ({})", saved.getName(), saved.getId());
 
         return roleMapper.toResponse(saved);
@@ -86,8 +95,11 @@ public class RoleServiceImpl implements RoleService {
     @Override
     @Transactional(readOnly = true)
     public List<RoleResponse> getAll() {
-        log.debug("Fetching all active roles");
-        return roleMapper.toResponseList(roleRepository.findAllByActiveTrue());
+        // Cache-aside: cached list, or load from the database and cache it.
+        return caches.roles().get(AppCaches.ALL, () -> {
+            log.debug("Fetching all active roles");
+            return roleMapper.toResponseList(roleRepository.findAllByActiveTrue());
+        });
     }
 
     @Override
@@ -97,6 +109,9 @@ public class RoleServiceImpl implements RoleService {
         // Soft delete — users holding this role simply lose its permissions going forward
         role.setActive(false);
         roleRepository.save(role);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.roles().invalidateAll();
+        caches.principals().invalidateAll();
         log.info("Role deactivated: {} ({})", role.getName(), id);
     }
 
@@ -113,6 +128,9 @@ public class RoleServiceImpl implements RoleService {
         }
         role.setPermissions(permission);
         Role saved = roleRepository.save(role);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.roles().invalidateAll();
+        caches.principals().invalidateAll();
         log.info("Permissions updated for role {}: {} permission(s) assigned", role.getName(), permission.size());
         return roleMapper.toResponse(saved);
     }

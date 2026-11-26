@@ -2,7 +2,6 @@ package com.ratana.task_management_api.task.entity;
 
 import com.ratana.task_management_api.file.entity.Attachment;
 import com.ratana.task_management_api.organization.entity.Department;
-import com.ratana.task_management_api.task.reminder.TaskReminderSetting;
 import com.ratana.task_management_api.user.entity.User;
 
 
@@ -164,8 +163,9 @@ public class Task {
     @Builder.Default
     private List<TaskLog> logs = new ArrayList<>();
 
-    @OneToOne(mappedBy = "task", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
-    private TaskReminderSetting reminderSetting;
+    // No inverse mapping to TaskReminderSetting on purpose: Hibernate can't lazy-load the non-owning
+    // side of a @OneToOne, so it ran one extra SELECT for every task loaded (lists, dashboard, jobs).
+    // Load a task's setting through TaskReminderSettingRepository instead.
 
     /**
      * Every status change goes through here, so completedAt can't drift: stamped on entering

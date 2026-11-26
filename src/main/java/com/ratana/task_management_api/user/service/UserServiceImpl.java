@@ -1,5 +1,7 @@
 package com.ratana.task_management_api.user.service;
 
+import com.ratana.task_management_api.common.cache.AppCaches;
+
 import com.ratana.task_management_api.auth.dto.request.ChangePasswordRequest;
 import com.ratana.task_management_api.rbac.dto.request.AssignRolesRequest;
 import com.ratana.task_management_api.user.dto.request.AssignManagerRequest;
@@ -76,6 +78,7 @@ public class UserServiceImpl implements UserService {
     private final RoleRepository roleRepository;
 
     private final RefreshTokenService refreshTokenService;
+    private final AppCaches caches;
     @Override
     public UserResponse create(UserCreateRequest request) {
         log.debug("Creating user with email {}", request.getEmail());
@@ -139,6 +142,9 @@ public class UserServiceImpl implements UserService {
 
         userMapper.upateEntity(user,request);
         User saved = userRepository.save(user);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.principals().invalidateAll();
+        caches.departments().invalidateAll();
         log.info("User updated: {} ({})", saved.getEmail(), id);
         return userMapper.toResponse(saved);
     }
@@ -156,6 +162,9 @@ public class UserServiceImpl implements UserService {
         user.setStatus(UserStatus.INACTIVE);
         user.setActive(false);
         userRepository.save(user);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.principals().invalidateAll();
+        caches.departments().invalidateAll();
         // End every session now instead of letting refresh tokens live out their 7 days.
         refreshTokenService.revokeAllForUser(id);
         log.info("User deactivated and signed out everywhere: {} ({})", user.getEmail(), id);
@@ -173,6 +182,9 @@ public class UserServiceImpl implements UserService {
         user.setStatus(UserStatus.ACTIVE);
         user.setActive(true);
         userRepository.save(user);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.principals().invalidateAll();
+        caches.departments().invalidateAll();
         log.info("User activated: {} ({})", user.getEmail(), id);
     }
 
@@ -205,6 +217,9 @@ public class UserServiceImpl implements UserService {
 
         user.setRoles(roles);
         userRepository.save(user);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.principals().invalidateAll();
+        caches.departments().invalidateAll();
         log.info("Roles {} assigned to user {}", roles.stream().map(Role::getName).toList(), id);
 
         return userMapper.toResponse(user);
@@ -290,6 +305,9 @@ public class UserServiceImpl implements UserService {
         user.setDepartment(department);
         user.setPosition(position);
         userRepository.save(user);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.principals().invalidateAll();
+        caches.departments().invalidateAll();
         log.info("Org assigned to user {}: department={}, position={}", id,
                 department == null ? null : department.getId(), position == null ? null : position.getId());
         return userMapper.toResponse(user);
@@ -335,6 +353,9 @@ public class UserServiceImpl implements UserService {
         String previousUrl = user.getAvatarUrl();
         user.setAvatarUrl(storageService.publicUrl(storageKey));
         UserResponse response = userMapper.toResponse(userRepository.save(user));
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.principals().invalidateAll();
+        caches.departments().invalidateAll();
         log.info("Avatar uploaded for user {}: key={}, size={}", id, storageKey, file.getSize());
         deleteStoredAvatar(previousUrl);
         return response;
@@ -348,6 +369,9 @@ public class UserServiceImpl implements UserService {
 
         user.setAvatarUrl(null);
         userRepository.save(user);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.principals().invalidateAll();
+        caches.departments().invalidateAll();
         log.info("Avatar removed for user {}", id);
         deleteStoredAvatar(previousUrl);
 

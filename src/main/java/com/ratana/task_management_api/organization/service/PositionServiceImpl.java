@@ -1,5 +1,7 @@
 package com.ratana.task_management_api.organization.service;
 
+import com.ratana.task_management_api.common.cache.AppCaches;
+
 import com.ratana.task_management_api.organization.dto.request.PositionRequest;
 import com.ratana.task_management_api.organization.dto.response.PositionResponse;
 import com.ratana.task_management_api.common.exception.DuplicateResourceException;
@@ -27,6 +29,7 @@ public class PositionServiceImpl implements PositionService {
     private final PositionRepository positionRepository;
     private final DepartmentRepository departmentRepository;
     private final PositionMapper positionMapper;
+    private final AppCaches caches;
 
     @Override
     @Transactional
@@ -43,6 +46,8 @@ public class PositionServiceImpl implements PositionService {
         position.setDepartment(department);
 
         Position saved =  positionRepository.save(position);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.positions().invalidateAll();
 
         log.info("Position created: {} ({})", saved.getName(), saved.getId());
 
@@ -63,6 +68,8 @@ public class PositionServiceImpl implements PositionService {
         positionMapper.updateEntityFromRequest(request, position);
         position.setDepartment(department);
         Position saved = positionRepository.save(position);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.positions().invalidateAll();
         log.info("Position updated: {} ({})", saved.getName(), id);
         return positionMapper.toResponse(saved);
 
@@ -77,12 +84,14 @@ public class PositionServiceImpl implements PositionService {
 
     @Override
     public List<PositionResponse> getAll() {
-        log.debug("Fetching all active positions");
-
-        return positionRepository.findAllActiveWithDepartment()
-                .stream()
-                .map(positionMapper::toResponse)
-                .toList();
+        // Cache-aside: cached list, or load from the database and cache it.
+        return caches.positions().get(AppCaches.ALL, () -> {
+            log.debug("Fetching all active positions");
+            return positionRepository.findAllActiveWithDepartment()
+                    .stream()
+                    .map(positionMapper::toResponse)
+                    .toList();
+        });
     }
 
     @Override
@@ -91,6 +100,8 @@ public class PositionServiceImpl implements PositionService {
         // Soft delete — preserves references from employee records
         position.setActive(false);
         positionRepository.save(position);
+        // Cache-aside: database written above; drop cached copies once it commits.
+        caches.positions().invalidateAll();
         log.info("Position deactivated: {} ({})", position.getName(), id);
     }
 }
