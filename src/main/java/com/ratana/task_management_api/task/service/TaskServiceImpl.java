@@ -30,6 +30,7 @@ import com.ratana.task_management_api.task.entity.Task;
 import com.ratana.task_management_api.task.entity.TaskAssignment;
 import com.ratana.task_management_api.user.entity.User;
 import com.ratana.task_management_api.organization.repository.DepartmentRepository;
+import com.ratana.task_management_api.task.repository.TaskCountRepository;
 import com.ratana.task_management_api.task.repository.TaskRepository;
 import com.ratana.task_management_api.task.repository.TaskSubmissionRepository;
 import com.ratana.task_management_api.user.repository.UserRepository;
@@ -556,14 +557,19 @@ public class TaskServiceImpl implements TaskService {
         filter.setOverdue(null);
         Specification<Task> spec = visibleActiveSpec(actor, scope).and(TaskSpecifications.fromFilter(filter));
 
+        // One GROUP BY status query instead of a COUNT per status plus one for overdue.
+        Map<TaskStatus, TaskCountRepository.StatusCount> counts = taskRepository.countByStatusWithOverdue(spec);
         Map<String, Long> byStatus = new LinkedHashMap<>();
         long total = 0;
-        for (TaskStatus status : TaskStatus.values()) {
-            long count = taskRepository.count(spec.and(TaskSpecifications.withStatus(status)));
-            byStatus.put(status.name(), count);
-            total += count;
+        long overdue = 0;
+        for (TaskStatus status : TaskStatus.values()) {   // every status, zero included, in enum order
+            TaskCountRepository.StatusCount count = counts.get(status);
+            byStatus.put(status.name(), count == null ? 0L : count.count());
+            if (count != null) {
+                total += count.count();
+                overdue += count.overdue();
+            }
         }
-        long overdue = taskRepository.count(spec.and(TaskSpecifications.overdue(true)));
         return new TaskCountsResponse(total, overdue, byStatus);
     }
 

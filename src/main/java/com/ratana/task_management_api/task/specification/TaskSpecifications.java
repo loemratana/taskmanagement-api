@@ -32,7 +32,8 @@ public final class TaskSpecifications {
     public static Specification<Task> visibleTo(UserPrincipal actor, ViewScope scope,
                                                 Collection<UUID> teamMemberIds) {
         return (root, query, cb) -> {
-            if (query != null && query.getResultType() != Long.class && query.getResultType() != long.class) {
+            // Fetch joins only for entity queries: a COUNT or GROUP BY query must not fetch.
+            if (query != null && query.getResultType() == Task.class) {
                 root.fetch("department", JoinType.LEFT);
                 root.fetch("assignee", JoinType.LEFT);
                 root.fetch("creator", JoinType.LEFT);

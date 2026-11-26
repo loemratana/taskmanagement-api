@@ -22,7 +22,7 @@ import java.util.UUID;
 
 
 @Repository
-public interface TaskRepository extends JpaRepository<Task, UUID> , JpaSpecificationExecutor<Task> {
+public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificationExecutor<Task>, TaskCountRepository {
 
 
 
